@@ -4,6 +4,17 @@
 
 Provenance Guard is an API service that classifies text content as AI-generated or human-written, providing confidence scores and transparency labels for platforms and readers. The system uses a multi-signal detection pipeline to minimize false positives while maintaining fast response times.
 
+## Current Implementation Status
+
+**Milestone 3 (In Progress):**
+- ✅ Flask API with POST /submit endpoint
+- ✅ Input validation (text length, creator_id required)
+- ✅ Signal 1 (Text Statistics) wired and returning attribution score
+- ✅ content_id generation and tracking
+- ⏳ Audit log setup (next step)
+- ✅ Rate limiting (implemented)
+- ✅ Error handling (implemented)
+
 ## The Journey: Text Submission to User Label
 
 A user's text submission goes through the following path:
@@ -612,20 +623,18 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 - `text`: Required, string, 10-10,000 characters, UTF-8 encoding required, non-whitespace only
 - `creator_id`: Required, string, non-empty (identifier of the content creator)
 
-**Success Response (200 OK):**
+**Success Response (200 OK) - Milestone 3:**
 ```json
 {
   "content_id": "550e8400-e29b-41d4-a716-446655440000",
   "creator_id": "user-12345",
-  "classification": "human",
-  "confidence": 0.92,
-  "label": "This appears to be written by a human",
-  "signals": {
-    "text_statistics": 0.88,
-    "semantic_analysis": 0.94
-  }
+  "attribution": 0.92,
+  "confidence": 0.5,
+  "label": "uncertain"
 }
 ```
+
+**Note:** In Milestone 3, `attribution` is the Signal 1 (Text Statistics) score. `confidence` and `label` are placeholders. In Milestone 4, these will be replaced with actual ensemble scoring from both signals.
 
 **Error Responses:**
 - `400 Bad Request`: Invalid input (too short, non-UTF8, empty, etc.)
@@ -747,7 +756,8 @@ GET /log?limit=3&offset=0
 ### Content Submission Endpoint
 - **Endpoint:** POST `/submit`
 - **Input:** JSON with text field (10-10,000 characters) and creator_id
-- **Output:** JSON with classification, confidence, label, content_id, creator_id, and signal breakdown
+- **Output (M3):** JSON with content_id, creator_id, attribution (Signal 1 score), placeholder confidence (0.5), and placeholder label ("uncertain")
+- **Output (M4+):** Will include actual ensemble confidence and label from both signals
 - **Error Handling:** 400 for invalid input, 413 for oversized, 429 for rate limit
 
 ### Multi-Signal Detection Pipeline
