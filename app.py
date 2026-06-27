@@ -143,13 +143,9 @@ def submit():
         {
             "content_id": "uuid",
             "creator_id": "user-123",
-            "classification": "human|ai|uncertain",
-            "confidence": 0.0-1.0,
-            "label": "transparency label text",
-            "signals": {
-                "text_statistics": 0.0-1.0,
-                "semantic_analysis": 0.0-1.0
-            }
+            "attribution": 0.0-1.0,
+            "confidence": 0.5,
+            "label": "uncertain"
         }
 
     Errors:
@@ -167,30 +163,16 @@ def submit():
         if error:
             return jsonify({"error": error["error"]}), error["code"]
 
-        # Multi-Signal Pipeline: Run both signals (parallel in production)
         # Signal 1: Text Statistics (fast, no external calls)
-        stat_score = calculate_text_statistics(text)
+        signal_1_score = calculate_text_statistics(text)
 
-        # Signal 2: Groq Semantic Analysis (dummy for M3, will be replaced in M4)
-        semantic_score = 0.5
-
-        # Confidence Scorer: Blend signals
-        confidence = score_confidence(stat_score, semantic_score)
-
-        # Label Generator: Create transparency text
-        classification, label = generate_label(confidence)
-
-        # Build response (Flow 1: API Response)
+        # Build response with Signal 1 attribution and placeholder confidence/label
         response = {
             "content_id": content_id,
             "creator_id": creator_id,
-            "classification": classification,
-            "confidence": confidence,
-            "label": label,
-            "signals": {
-                "text_statistics": round(stat_score, 2),
-                "semantic_analysis": round(semantic_score, 2)
-            }
+            "attribution": round(signal_1_score, 2),
+            "confidence": 0.5,
+            "label": "uncertain"
         }
 
         return jsonify(response), 200
