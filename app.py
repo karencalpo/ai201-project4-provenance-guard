@@ -3,20 +3,21 @@ Provenance Guard: AI Content Classification Service
 
 Architecture Flow (Flow 1: Text Submission):
   User/Client
-      ↓ POST /classify {"text": "..."}
+      ↓ POST /submit {"text": "...", "creator_id": "..."}
   Flask API Server
-      ↓ (text, source_ip)
+      ↓ (text, creator_id, source_ip)
   Rate Limiter (10 req/min per IP)
       ├─ On limit exceeded → 429 error
       └─ On pass → continue
-      ↓ (text, source_ip)
+      ↓ (text, creator_id, source_ip)
   Input Validator
       ├─ Check length (10-10k chars)
       ├─ Validate UTF-8
-      └─ Generate submission_id (UUID)
+      ├─ Validate creator_id (non-empty)
+      └─ Generate content_id (UUID)
       ├─ On invalid → 400/413 error
       └─ On valid → continue
-      ↓ (text, submission_id)
+      ↓ (text, creator_id, content_id)
   Multi-Signal Pipeline (parallel)
       ├─ Signal 1: Text Statistics → stat_score (0-1)
       └─ Signal 2: Groq API → semantic_score (0-1)
@@ -29,7 +30,7 @@ Architecture Flow (Flow 1: Text Submission):
       └─ >0.80 → "written by a human"
       ↓ (label_text)
   API Response
-      └─ JSON: {submission_id, classification, confidence, label, signals}
+      └─ JSON: {content_id, creator_id, classification, confidence, label, signals}
 """
 
 import json
@@ -51,38 +52,46 @@ limiter = Limiter(
 
 def validate_and_prepare(data):
     """
-    Input Validator: Validate text and generate submission_id.
+    Input Validator: Validate text and creator_id, generate content_id.
 
     Args:
         data: Request JSON data
 
     Returns:
-        tuple: (text, submission_id) if valid
-        tuple: (None, None, error_dict) if invalid
+        tuple: (text, creator_id, content_id) if valid
+        tuple: (None, None, None, error_dict) if invalid
     """
     if not data or 'text' not in data:
-        return None, None, {"error": "Missing 'text' field", "code": 400}
+        return None, None, None, {"error": "Missing 'text' field", "code": 400}
+
+    if not data or 'creator_id' not in data:
+        return None, None, None, {"error": "Missing 'creator_id' field", "code": 400}
 
     text = data['text']
+    creator_id = data['creator_id']
 
-    # Validate type
+    # Validate text type
     if not isinstance(text, str):
-        return None, None, {"error": "Text must be a string", "code": 400}
+        return None, None, None, {"error": "Text must be a string", "code": 400}
 
-    # Validate length
+    # Validate creator_id type
+    if not isinstance(creator_id, str) or not creator_id.strip():
+        return None, None, None, {"error": "Creator_id must be a non-empty string", "code": 400}
+
+    # Validate text length
     if len(text) < 10:
-        return None, None, {"error": "Text must be at least 10 characters", "code": 400}
+        return None, None, None, {"error": "Text must be at least 10 characters", "code": 400}
     if len(text) > 10000:
-        return None, None, {"error": "Text must not exceed 10,000 characters", "code": 413}
+        return None, None, None, {"error": "Text must not exceed 10,000 characters", "code": 413}
 
     # Validate content (not just whitespace)
     if not text.strip():
-        return None, None, {"error": "Text cannot be only whitespace", "code": 400}
+        return None, None, None, {"error": "Text cannot be only whitespace", "code": 400}
 
-    # Generate submission ID
-    submission_id = str(uuid.uuid4())
+    # Generate content ID
+    content_id = str(uuid.uuid4())
 
-    return text, submission_id, None
+    return text, creator_id, content_id, None
 
 
 def score_confidence(stat_score, semantic_score):
@@ -120,19 +129,20 @@ def generate_label(confidence):
         return "uncertain", "We're uncertain about the origin of this content. It may be AI-generated or human-written."
 
 
-@app.route('/classify', methods=['POST'])
+@app.route('/submit', methods=['POST'])
 @limiter.limit("10 per minute")
-def classify():
+def submit():
     """
-    POST /classify: Submit text for AI/human classification.
+    POST /submit: Submit text for AI/human classification.
 
     Request:
-        POST /classify
-        {"text": "..."}
+        POST /submit
+        {"text": "...", "creator_id": "user-123"}
 
     Response (200 OK):
         {
-            "submission_id": "uuid",
+            "content_id": "uuid",
+            "creator_id": "user-123",
             "classification": "human|ai|uncertain",
             "confidence": 0.0-1.0,
             "label": "transparency label text",
@@ -143,7 +153,7 @@ def classify():
         }
 
     Errors:
-        400: Invalid input (missing, too short, non-string, whitespace-only)
+        400: Invalid input (missing fields, text too short, non-string, whitespace-only)
         413: Text exceeds 10,000 characters
         429: Rate limit exceeded (10 per minute per IP)
         500: Server error
@@ -153,7 +163,7 @@ def classify():
         data = request.get_json()
 
         # Input Validator: Validate and prepare
-        text, submission_id, error = validate_and_prepare(data)
+        text, creator_id, content_id, error = validate_and_prepare(data)
         if error:
             return jsonify({"error": error["error"]}), error["code"]
 
@@ -172,7 +182,8 @@ def classify():
 
         # Build response (Flow 1: API Response)
         response = {
-            "submission_id": submission_id,
+            "content_id": content_id,
+            "creator_id": creator_id,
             "classification": classification,
             "confidence": confidence,
             "label": label,

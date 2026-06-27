@@ -13,7 +13,7 @@ A user's text submission goes through the following path:
    ↓
 2. Rate Limiter validates request frequency
    ↓
-3. Input Validator checks content and generates tracking ID
+3. Input Validator checks content, validates creator_id, and generates tracking ID (content_id)
    ↓
 4. Multi-Signal Detection Pipeline analyzes text
    ├─ Signal 1: Text Statistics (30% weight) - statistical patterns
@@ -34,22 +34,24 @@ A user's text submission goes through the following path:
 **Purpose:** HTTP entry point for the service.
 
 **Responsibilities:**
-- Receive POST requests at `/classify` endpoint
+- Receive POST requests at `/submit` endpoint
 - Route requests through the detection pipeline
 - Return structured JSON responses
 - Handle errors and edge cases
 
 **Interface:**
 ```json
-POST /classify
+POST /submit
 Request:
 {
-  "text": "The quick brown fox jumps over the lazy dog..."
+  "text": "The quick brown fox jumps over the lazy dog...",
+  "creator_id": "user-12345"
 }
 
 Response:
 {
-  "submission_id": "uuid-1234",
+  "content_id": "uuid-1234",
+  "creator_id": "user-12345",
   "classification": "human",
   "confidence": 0.92,
   "label": "This appears to be written by a human",
@@ -78,10 +80,11 @@ Response:
 - Text length: minimum 10 characters, maximum 10,000 characters
 - Text encoding: UTF-8 valid
 - Non-empty content (not whitespace only)
-- Generates unique `submission_id` (UUID) for tracking
+- `creator_id` is required and non-empty
+- Generates unique `content_id` (UUID) for tracking
 
 **Error Responses:**
-- 400 Bad Request for invalid input
+- 400 Bad Request for invalid input (missing creator_id, text too short, etc.)
 - 413 Payload Too Large for oversized submissions
 
 ### 4. Multi-Signal Detection Pipeline
@@ -217,7 +220,8 @@ Used when: Signals conflict or are inconclusive
 **Purpose:** Create an immutable record of all classification decisions for compliance, debugging, and appeals.
 
 **What Gets Logged:** Every classification decision records:
-- `submission_id`: Unique identifier for this submission
+- `content_id`: Unique identifier for this submission
+- `creator_id`: ID of the creator who submitted this content
 - `timestamp`: When classification occurred
 - `text_hash`: SHA-256 hash of submitted text (for privacy, not full text)
 - `signal_1_score`: Text statistics analyzer output
@@ -238,7 +242,8 @@ Used when: Signals conflict or are inconclusive
 ```json
 [
   {
-    "submission_id": "550e8400-e29b-41d4-a716-446655440000",
+    "content_id": "550e8400-e29b-41d4-a716-446655440000",
+    "creator_id": "user-alice-001",
     "timestamp": "2026-06-26T14:32:15Z",
     "text_hash": "d2d2d2...",
     "signal_1_score": 0.88,
@@ -250,7 +255,8 @@ Used when: Signals conflict or are inconclusive
     "groq_reasoning": "Natural thought progression and genuine knowledge integration..."
   },
   {
-    "submission_id": "660e8400-e29b-41d4-a716-446655440001",
+    "content_id": "660e8400-e29b-41d4-a716-446655440001",
+    "creator_id": "user-bob-002",
     "timestamp": "2026-06-26T14:31:45Z",
     "text_hash": "e3e3e3...",
     "signal_1_score": 0.15,
@@ -262,7 +268,8 @@ Used when: Signals conflict or are inconclusive
     "groq_reasoning": "Formulaic structure and pattern-matching without genuine reasoning..."
   },
   {
-    "submission_id": "770e8400-e29b-41d4-a716-446655440002",
+    "content_id": "770e8400-e29b-41d4-a716-446655440002",
+    "creator_id": "user-carol-003",
     "timestamp": "2026-06-26T14:30:12Z",
     "text_hash": "f4f4f4...",
     "signal_1_score": 0.52,
@@ -387,7 +394,8 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 **Schema:**
 
 **Table: submissions**
-- `id` (UUID): Primary key
+- `id` (UUID): Primary key (content_id)
+- `creator_id` (string): ID of content creator
 - `text_hash` (SHA-256): Hash of original text
 - `classification` (enum: human|ai|uncertain): Final decision
 - `confidence` (float 0-1): Confidence score
@@ -398,7 +406,8 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 **Table: audit_log**
 - `id` (UUID): Primary key
-- `submission_id` (UUID): Foreign key to submissions
+- `content_id` (UUID): Foreign key to submissions
+- `creator_id` (string): Creator of the content
 - `signal_1_score` (float): Text statistics result
 - `signal_2_score` (float): Semantic analysis result
 - `final_confidence` (float): Combined score
@@ -407,7 +416,8 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 **Table: appeals**
 - `id` (UUID): Primary key
-- `submission_id` (UUID): Foreign key to submissions
+- `content_id` (UUID): Foreign key to submissions
+- `creator_id` (string): Creator ID of the content being appealed
 - `creator_reasoning` (text): Appeal justification
 - `status` (enum: under_review|resolved): Appeal state
 - `timestamp` (ISO-8601): When submitted
@@ -415,14 +425,14 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 ## Architecture Flows with Labeled Data Passing
 
-### Flow 1: Text Submission Flow (POST /classify)
+### Flow 1: Text Submission Flow (POST /submit)
 
 ```
 ┌──────────────┐
 │ User/Client  │
 └────┬─────────┘
-     │ POST /classify
-     │ {"text": "..."}
+     │ POST /submit
+     │ {"text": "...", "creator_id": "..."}
      ↓
 ┌─────────────────┐
 │  Flask API      │
@@ -439,9 +449,9 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 ┌─────────────────┐
 │ Input Validator │
 │ (validate, gen  │
-│  submission_id) │
+│  content_id)    │
 └────┬────────────┘
-     │ (text, submission_id) [OR 400/413 error]
+     │ (text, creator_id, content_id) [OR 400/413 error]
      ↓
     ┌─────────────────────────────┐
     │ Multi-Signal Pipeline       │
@@ -480,7 +490,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
         │ API Response     │
         │ (JSON)           │
         └────────┬─────────┘
-                │ {"submission_id", "classification", "confidence", "label", "signals"}
+                │ {"content_id", "creator_id", "classification", "confidence", "label", "signals"}
                 ↓
         ┌──────────────────┐
         │ User/Client      │
@@ -490,8 +500,9 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 **Data Legend:**
 - `text`: Raw text content (10-10,000 chars)
+- `creator_id`: ID of content creator
 - `source_ip`: IP address of request
-- `submission_id`: UUID for tracking
+- `content_id`: UUID for tracking
 - `stat_score`: Text statistics signal output (0-1)
 - `semantic_score`: Groq semantic analysis output (0-1)
 - `final_confidence`: Weighted ensemble (70% semantic, 30% stats)
@@ -581,30 +592,31 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 | Endpoint | Method | Purpose | Rate Limit |
 |----------|--------|---------|-----------|
-| `/classify` | POST | Submit text for AI/human classification | 10 req/min per IP |
+| `/submit` | POST | Submit text for AI/human classification | 10 req/min per IP |
 | `/appeals` | POST | Appeal a classification decision | 10 req/min per IP |
 | `/log` | GET | Retrieve audit log of all classifications | 30 req/min per IP |
 
-### Endpoint 1: POST `/classify`
+### Endpoint 1: POST `/submit`
 
 **Purpose:** Submit text content for classification
 
 **Request Body:**
 ```json
 {
-  "text": "The content to analyze..."
+  "text": "The content to analyze...",
+  "creator_id": "user-12345"
 }
 ```
 
 **Constraints:**
-- `text`: Required, string, 10-10,000 characters
-- UTF-8 encoding required
-- Non-whitespace only
+- `text`: Required, string, 10-10,000 characters, UTF-8 encoding required, non-whitespace only
+- `creator_id`: Required, string, non-empty (identifier of the content creator)
 
 **Success Response (200 OK):**
 ```json
 {
-  "submission_id": "550e8400-e29b-41d4-a716-446655440000",
+  "content_id": "550e8400-e29b-41d4-a716-446655440000",
+  "creator_id": "user-12345",
   "classification": "human",
   "confidence": 0.92,
   "label": "This appears to be written by a human",
@@ -630,28 +642,31 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 **Request Body:**
 ```json
 {
-  "submission_id": "550e8400-e29b-41d4-a716-446655440000",
+  "content_id": "550e8400-e29b-41d4-a716-446655440000",
+  "creator_id": "user-12345",
   "creator_reasoning": "This is my original work. I wrote it myself without AI assistance..."
 }
 ```
 
 **Constraints:**
-- `submission_id`: Required, must exist in database
+- `content_id`: Required, must exist in database
+- `creator_id`: Required, must match the creator_id of the original submission
 - `creator_reasoning`: Required, string, 20-2,000 characters
 
 **Success Response (200 OK):**
 ```json
 {
   "appeal_id": "appeal-uuid-001",
-  "submission_id": "550e8400-e29b-41d4-a716-446655440000",
+  "content_id": "550e8400-e29b-41d4-a716-446655440000",
+  "creator_id": "user-12345",
   "status": "under_review",
   "message": "Your appeal has been received and logged. A human reviewer will examine your case."
 }
 ```
 
 **Error Responses:**
-- `400 Bad Request`: Invalid submission_id or reasoning too short/long
-- `404 Not Found`: submission_id doesn't exist in database
+- `400 Bad Request`: Invalid content_id, creator_id mismatch, or reasoning too short/long
+- `404 Not Found`: content_id doesn't exist in database
 - `429 Too Many Requests`: Rate limit exceeded (10 requests per minute per IP)
 - `500 Internal Server Error`: Database error
 
@@ -678,7 +693,8 @@ GET /log?limit=3&offset=0
   "offset": 0,
   "records": [
     {
-      "submission_id": "550e8400-e29b-41d4-a716-446655440000",
+      "content_id": "550e8400-e29b-41d4-a716-446655440000",
+      "creator_id": "user-alice-001",
       "timestamp": "2026-06-26T14:32:15Z",
       "text_hash": "d2d2d2d2...",
       "signal_1_score": 0.88,
@@ -690,7 +706,8 @@ GET /log?limit=3&offset=0
       "appeal_status": "none"
     },
     {
-      "submission_id": "660e8400-e29b-41d4-a716-446655440001",
+      "content_id": "660e8400-e29b-41d4-a716-446655440001",
+      "creator_id": "user-bob-002",
       "timestamp": "2026-06-26T14:31:45Z",
       "text_hash": "e3e3e3e3...",
       "signal_1_score": 0.15,
@@ -702,7 +719,8 @@ GET /log?limit=3&offset=0
       "appeal_status": "none"
     },
     {
-      "submission_id": "770e8400-e29b-41d4-a716-446655440002",
+      "content_id": "770e8400-e29b-41d4-a716-446655440002",
+      "creator_id": "user-carol-003",
       "timestamp": "2026-06-26T14:30:12Z",
       "text_hash": "f4f4f4f4...",
       "signal_1_score": 0.52,
@@ -727,9 +745,9 @@ GET /log?limit=3&offset=0
 ## Feature Coverage
 
 ### Content Submission Endpoint
-- **Endpoint:** POST `/classify`
-- **Input:** JSON with text field (10-10,000 characters)
-- **Output:** JSON with classification, confidence, label, submission_id, and signal breakdown
+- **Endpoint:** POST `/submit`
+- **Input:** JSON with text field (10-10,000 characters) and creator_id
+- **Output:** JSON with classification, confidence, label, content_id, creator_id, and signal breakdown
 - **Error Handling:** 400 for invalid input, 413 for oversized, 429 for rate limit
 
 ### Multi-Signal Detection Pipeline
@@ -770,7 +788,7 @@ Exactly three variants, displayed to non-technical readers:
 
 ### Appeals Workflow
 - **Endpoint:** POST `/appeals`
-- **Input:** submission_id and creator_reasoning
+- **Input:** content_id, creator_id, and creator_reasoning
 - **Action:** Records appeal, updates submission status to "under_review"
 - **Output:** appeal_id and confirmation message
 - **Logging:** Appeal stored in `appeals` table, linked to original submission
@@ -785,7 +803,7 @@ Exactly three variants, displayed to non-technical readers:
 
 ### Audit Log
 - **Access:** GET `/log` returns last 100 classification records
-- **Contents:** submission_id, timestamp, signal scores, confidence, classification, label, IP, reasoning
+- **Contents:** content_id, creator_id, timestamp, signal scores, confidence, classification, label, IP, reasoning
 - **Storage:** SQLite `audit_log` table
 - **Immutable:** Append-only, no modifications
 - **Example:** Returns at least 3 complete entries showing variety of classifications
@@ -905,9 +923,9 @@ A human translates a German article to English. Translation is accurate but:
 **What to Ask AI Tool to Generate:**
 ```
 "Using the provided signal definitions and submission flow diagram, create:
-1. A Flask application skeleton (app.py) with POST /classify endpoint
-   - Accept JSON with 'text' field
-   - Return JSON with submission_id, classification, confidence, label, signals
+1. A Flask application skeleton (app.py) with POST /submit endpoint
+   - Accept JSON with 'text' and 'creator_id' fields
+   - Return JSON with content_id, creator_id, classification, confidence, label, signals
    - For now, use dummy signal values (we'll replace with real logic next)
    
 2. A signal_1 function in detection/text_stats.py that calculates:
@@ -921,13 +939,14 @@ Use the measurements and why-it-matters context from the spec to inform your imp
 
 **How to Verify Output:**
 1. Test the Flask endpoint directly with 3 sample texts via curl or Postman
-2. Verify response structure matches spec (has all required fields)
+2. Verify response structure matches spec (has all required fields including content_id and creator_id)
 3. Test signal_1 function independently:
    - Pass a highly repetitive text → should score low (0.1-0.3)
    - Pass varied, natural text → should score high (0.7-0.9)
    - Verify score is between 0.0-1.0
-4. Check that endpoint returns non-zero submission_id for each request
-5. Verify no errors before moving to M4
+4. Check that endpoint returns non-zero content_id for each request
+5. Verify creator_id is preserved in response
+6. Verify no errors before moving to M4
 
 ---
 
@@ -956,7 +975,7 @@ Use the measurements and why-it-matters context from the spec to inform your imp
    - Returns confidence score 0.0-1.0
    - Include mapping examples from the spec (what 0.25, 0.50, 0.75, 0.95 mean)
    
-3. Update the /classify endpoint to:
+3. Update the /submit endpoint to:
    - Call both signals in sequence (or in parallel)
    - Pass results to confidence scorer
    - Return actual confidence in response (not dummy value)"
@@ -976,7 +995,7 @@ Use the measurements and why-it-matters context from the spec to inform your imp
    - Verify threshold mapping: 0.51 (uncertain) vs 0.95 (high-confidence human) produce different results
 
 3. **End-to-End:**
-   - Submit same texts via /classify endpoint
+   - Submit same texts via /submit endpoint
    - Verify response includes both individual signal scores AND final confidence
    - Confirm scores match manual calculations from spec examples
 
@@ -1003,8 +1022,8 @@ Use the measurements and why-it-matters context from the spec to inform your imp
    - Include comment explaining why these thresholds were chosen
    
 2. POST /appeals endpoint in app.py that:
-   - Accepts submission_id and creator_reasoning
-   - Validates inputs (reasoning 20-2000 chars, submission_id exists)
+   - Accepts content_id, creator_id, and creator_reasoning
+   - Validates inputs (reasoning 20-2000 chars, content_id exists, creator_id matches)
    - Creates appeal record in SQLite
    - Updates original submission status to 'under_review'
    - Logs to audit_log
@@ -1028,14 +1047,15 @@ Use the measurements and why-it-matters context from the spec to inform your imp
 
 2. **Appeals Endpoint:**
    - Submit valid appeal → check 200 response with appeal_id
-   - Submit with invalid submission_id → check 404 response
+   - Submit with invalid content_id → check 404 response
+   - Submit with creator_id mismatch → check 400 response
    - Submit with reasoning too short (<20 chars) → check 400 response
    - Submit with reasoning too long (>2000 chars) → check 400 response
    - Verify appeal_id is unique and trackable
 
 3. **Database State:**
    - After successful appeal: query submissions table, verify appeal_status changed to "under_review"
-   - Query appeals table: verify record exists with correct fields
+   - Query appeals table: verify record exists with correct fields and creator_id
    - Query audit_log: verify appeal event was logged
    - Verify original classification is unchanged (only status changed)
 
