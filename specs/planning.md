@@ -188,10 +188,10 @@ final_confidence = (0.70 × signal_1_groq_score) + (0.30 × signal_2_stylometric
 - 1.0 = definitely human-written
 
 **Uncertainty Representation:**
-- Score of 0.51 produces "uncertain" label (different from 0.95)
-- Score of 0.75 produces "likely human but uncertain" label
-- Score of 0.25 produces "likely AI but uncertain" label
-- Score of 0.95 produces definitive "human-written" label
+- Score of 0.51 produces "uncertain" label (different from 0.85)
+- Score of 0.60 produces "genuinely uncertain, could go either way" label
+- Score of 0.30 produces "likely AI but uncertain" label
+- Score of 0.85 produces definitive "human-written" label
 
 **Key Design:** The confidence score directly determines label text, ensuring that 0.51 and 0.95 are meaningfully different to end users, not just numerically different.
 
@@ -208,28 +208,28 @@ Example with confidence score of 0.605:
   - Label shown: "We're uncertain about the origin of this content..."
 
 **Threshold Mapping:**
-- **0.0-0.20:** High-confidence AI ("This appears to be AI-generated content")
-- **0.20-0.80:** Uncertain ("We're uncertain about the origin...")
-- **0.80-1.0:** High-confidence human ("This appears to be written by a human")
+- **0.0-0.35:** High-confidence AI ("This appears to be AI-generated content")
+- **0.35-0.70:** Uncertain ("We're uncertain about the origin...")
+- **0.70-1.0:** High-confidence human ("This appears to be written by a human")
 
 ### 6. Label Generator (`labels/generator.py`)
 **Purpose:** Convert confidence scores into plain-language transparency text for non-technical readers.
 
 **Three Label Variants:**
 
-**Variant 1: High-Confidence Human (Confidence > 0.80)**
+**Variant 1: High-Confidence Human (Confidence > 0.70)**
 ```
 "This appears to be written by a human"
 ```
 Used when: Text has strong statistical and semantic markers of human authorship
 
-**Variant 2: High-Confidence AI (Confidence < 0.20)**
+**Variant 2: High-Confidence AI (Confidence < 0.35)**
 ```
 "This appears to be AI-generated content"
 ```
 Used when: Both signals indicate strong probability of AI generation
 
-**Variant 3: Uncertain (Confidence 0.20-0.80)**
+**Variant 3: Uncertain (Confidence 0.35-0.70)**
 ```
 "We're uncertain about the origin of this content. It may be AI-generated or human-written."
 ```

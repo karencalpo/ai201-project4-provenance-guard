@@ -27,11 +27,11 @@ def test_label_generator():
     # Test cases: (confidence, expected_classification, description)
     test_cases = [
         (0.10, "ai", "Low confidence AI"),
-        (0.19, "ai", "Boundary: just below 0.20"),
-        (0.20, "uncertain", "Boundary: exactly 0.20"),
+        (0.34, "ai", "Boundary: just below 0.35"),
+        (0.35, "uncertain", "Boundary: exactly 0.35"),
         (0.50, "uncertain", "Middle uncertainty"),
-        (0.80, "uncertain", "Boundary: exactly 0.80"),
-        (0.81, "human", "Boundary: just above 0.80"),
+        (0.70, "uncertain", "Boundary: exactly 0.70"),
+        (0.71, "human", "Boundary: just above 0.70"),
         (0.90, "human", "High confidence human"),
     ]
 
@@ -65,7 +65,7 @@ def test_label_generator():
     label_tests = [
         (0.10, "AI-generated content"),
         (0.50, "uncertain about the origin"),
-        (0.90, "written by a human"),
+        (0.80, "written by a human"),
     ]
 
     label_passed = 0

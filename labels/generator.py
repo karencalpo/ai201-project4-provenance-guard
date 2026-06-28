@@ -42,13 +42,13 @@ def generate_label(confidence: float) -> dict:
     # Clamp confidence to valid range
     confidence = max(0.0, min(1.0, confidence))
 
-    if confidence < 0.20:
+    if confidence < 0.35:
         return {
             "classification": "ai",
             "label": "This appears to be AI-generated content",
             "confidence": round(confidence, 2)
         }
-    elif confidence > 0.80:
+    elif confidence > 0.70:
         return {
             "classification": "human",
             "label": "This appears to be written by a human",

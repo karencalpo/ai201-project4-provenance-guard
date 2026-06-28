@@ -42,6 +42,9 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 from detection.text_stats import calculate_text_statistics
+from detection.groq_analyzer import analyze_semantic
+from detection.scorer import score_confidence
+from labels.generator import generate_label
 
 
 app = Flask(__name__)
@@ -64,18 +67,19 @@ def init_db():
             content_id TEXT NOT NULL,
             creator_id TEXT NOT NULL,
             timestamp TEXT NOT NULL,
-            text_statistics_score REAL NOT NULL,
-            llm_score REAL,
-            attribution TEXT NOT NULL,
-            confidence REAL NOT NULL,
+            signal_1_score REAL NOT NULL,
+            signal_2_score REAL NOT NULL,
+            final_confidence REAL NOT NULL,
+            classification TEXT NOT NULL,
+            label TEXT NOT NULL,
             status TEXT NOT NULL
         )
     ''')
     conn.commit()
     conn.close()
 
-def log_to_audit(content_id, creator_id, text_statistics_score, attribution, confidence, status="classified"):
-    """Write structured entry to SQLite audit log."""
+def log_to_audit(content_id, creator_id, signal_1_score, signal_2_score, final_confidence, classification, label, status="classified"):
+    """Write structured entry to SQLite audit log with both signals."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -83,9 +87,9 @@ def log_to_audit(content_id, creator_id, text_statistics_score, attribution, con
 
     cursor.execute('''
         INSERT INTO audit_log
-        (id, content_id, creator_id, timestamp, text_statistics_score, llm_score, attribution, confidence, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (entry_id, content_id, creator_id, timestamp, text_statistics_score, None, attribution, confidence, status))
+        (id, content_id, creator_id, timestamp, signal_1_score, signal_2_score, final_confidence, classification, label, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (entry_id, content_id, creator_id, timestamp, signal_1_score, signal_2_score, final_confidence, classification, label, status))
 
     conn.commit()
     conn.close()
@@ -97,8 +101,8 @@ def get_log(limit=10):
     cursor = conn.cursor()
 
     cursor.execute('''
-        SELECT id, content_id, creator_id, timestamp, text_statistics_score, llm_score,
-               attribution, confidence, status
+        SELECT id, content_id, creator_id, timestamp, signal_1_score, signal_2_score,
+               final_confidence, classification, label, status
         FROM audit_log
         ORDER BY timestamp DESC
         LIMIT ?
@@ -159,39 +163,6 @@ def validate_and_prepare(data):
     return text, creator_id, content_id, None
 
 
-def score_confidence(stat_score, semantic_score):
-    """
-    Confidence Scorer: Combine signals via weighted ensemble.
-
-    Formula: final_confidence = (0.70 × semantic_score) + (0.30 × stat_score)
-
-    Args:
-        stat_score: Signal 1 output (0-1)
-        semantic_score: Signal 2 output (0-1)
-
-    Returns:
-        float: Combined confidence score (0-1)
-    """
-    confidence = (0.70 * semantic_score) + (0.30 * stat_score)
-    return round(min(1.0, max(0.0, confidence)), 2)
-
-
-def generate_label(confidence):
-    """
-    Label Generator: Map confidence to transparency text (3 variants).
-
-    Args:
-        confidence: Score 0.0-1.0
-
-    Returns:
-        tuple: (classification, label_text)
-    """
-    if confidence < 0.20:
-        return "ai", "This appears to be AI-generated content"
-    elif confidence > 0.80:
-        return "human", "This appears to be written by a human"
-    else:
-        return "uncertain", "We're uncertain about the origin of this content. It may be AI-generated or human-written."
 
 
 @app.route('/submit', methods=['POST'])
@@ -208,9 +179,13 @@ def submit():
         {
             "content_id": "uuid",
             "creator_id": "user-123",
-            "attribution": 0.0-1.0,
-            "confidence": 0.5,
-            "label": "uncertain"
+            "classification": "human|ai|uncertain",
+            "confidence": 0.0-1.0,
+            "label": "transparency text",
+            "signals": {
+                "signal_1": 0.0-1.0,
+                "signal_2": 0.0-1.0
+            }
         }
 
     Errors:
@@ -228,38 +203,43 @@ def submit():
         if error:
             return jsonify({"error": error["error"]}), error["code"]
 
-        # Signal 1: Text Statistics (fast, no external calls)
-        text_statistics_score = calculate_text_statistics(text)
+        # Signal 1: Groq Semantic Analysis (70% weight)
+        signal_1_score = analyze_semantic(text)
 
-        # Derive attribution classification from text statistics score
-        if text_statistics_score < 0.33:
-            attribution = "likely_ai"
-        elif text_statistics_score > 0.67:
-            attribution = "likely_human"
-        else:
-            attribution = "uncertain"
+        # Signal 2: Text Statistics (30% weight)
+        signal_2_score = calculate_text_statistics(text)
 
-        # Placeholder values for M3
-        confidence = 0.5
-        label = "uncertain"
+        # Confidence Scorer: Combine signals via weighted ensemble
+        final_confidence = score_confidence(signal_1_score, signal_2_score)
 
-        # Log to audit database
+        # Label Generator: Map confidence to transparency text
+        label_result = generate_label(final_confidence)
+        classification = label_result["classification"]
+        label = label_result["label"]
+
+        # Log to audit database with both signals
         log_to_audit(
             content_id=content_id,
             creator_id=creator_id,
-            text_statistics_score=text_statistics_score,
-            attribution=attribution,
-            confidence=confidence,
+            signal_1_score=signal_1_score,
+            signal_2_score=signal_2_score,
+            final_confidence=final_confidence,
+            classification=classification,
+            label=label,
             status="classified"
         )
 
-        # Build response with Signal 1 attribution and placeholder confidence/label
+        # Build response with both signal scores and final confidence
         response = {
             "content_id": content_id,
             "creator_id": creator_id,
-            "attribution": round(text_statistics_score, 2),
-            "confidence": confidence,
-            "label": label
+            "classification": classification,
+            "confidence": round(final_confidence, 2),
+            "label": label,
+            "signals": {
+                "signal_1": round(signal_1_score, 2),
+                "signal_2": round(signal_2_score, 2)
+            }
         }
 
         return jsonify(response), 200
@@ -271,7 +251,7 @@ def submit():
 @app.route('/log', methods=['GET'])
 def log():
     """
-    GET /log: Retrieve recent audit log entries.
+    GET /log: Retrieve recent audit log entries with both signal scores.
 
     Query Parameters:
         limit (optional, default=10, max=100): Number of entries to return
@@ -284,10 +264,11 @@ def log():
                     "content_id": "uuid",
                     "creator_id": "user-123",
                     "timestamp": "2026-06-27T22:03:36.000636Z",
-                    "text_statistics_score": 0.90,
-                    "llm_score": null,
-                    "attribution": "likely_human",
-                    "confidence": 0.5,
+                    "signal_1_score": 0.90,
+                    "signal_2_score": 0.85,
+                    "final_confidence": 0.88,
+                    "classification": "human",
+                    "label": "This appears to be written by a human",
                     "status": "classified"
                 },
                 ...
