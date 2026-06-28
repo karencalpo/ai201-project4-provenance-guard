@@ -958,36 +958,6 @@ Error: table audit_log has no column named attribution
 
 ---
 
-### Instance 4: README Comprehensive Rewrite (AI Generated Content, Human Directed Iterations)
-
-**What was directed:**
-"Help me fill out the README.md following these directions: [coverage of all required sections, design reasoning, actual examples with scores, label variants, known limitations, spec reflection, AI usage]"
-
-**What was produced (iteratively):**
-1. **First attempt:** Basic README with API docs
-2. **Feedback:** "Add design reasoning, not just implementation"
-3. **Revision:** Added Design Decisions, Signal reasoning sections with "why" not just "what"
-4. **Feedback:** "Include actual example submissions with scores"
-5. **Revision:** Added two concrete examples (human 0.86, AI 0.10) with score breakdowns
-6. **Feedback:** "Add label variants section with exact text users see"
-7. **Revision:** Added comprehensive Label Variants section with three examples
-8. **Feedback:** "Add known limitations section with signal-specific failures"
-9. **Revision:** Added Technical Documentation and Poetry failures with signal breakdowns
-10. **Feedback:** "Add spec reflection"
-11. **Revision:** Added section on how spec guided implementation and where divergence occurred
-12. **Current:** This AI Usage section
-
-**What was revised multiple times:**
-- Depth of reasoning (added more "why", less "what")
-- Specificity of examples (actual scores vs. hypothetical)
-- Honesty about limitations (signal-specific failures vs. generic "edge cases")
-- Structure (moved sections around for better flow)
-- Tone (more technical, less marketing-speak)
-
-**Key insight:** AI can generate initial content, but iterative human feedback is essential for quality. Each revision made the README more specific, honest, and useful.
-
----
-
 ### Summary: AI's Role in This Project
 
 | Task | AI Did | Human Did |
