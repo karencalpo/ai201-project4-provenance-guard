@@ -353,15 +353,20 @@ Response:
 ```
 
 **What Gets Recorded:**
-- `appeal_id`: Unique appeal identifier
-- `submission_id`: Links to original attribution
+- `appeal_id`: Unique appeal identifier (returned in response)
+- `content_id`: Links to original attribution
 - `creator_reasoning`: Text of creator's explanation
-- `timestamp`: When appeal was submitted
-- `status`: "under_review" (awaiting human evaluation)
+- `appeal_timestamp`: When appeal was submitted
+- `status`: Changes from "classified" to "under_review"
 
-**Stored:** SQLite `appeals` table, linked to original submission in audit log
+**Storage:** Appeal data is stored in the **same audit_log row** as the original classification:
+- `appeal_reasoning`: Populated when appeal is filed (null otherwise)
+- `appeal_timestamp`: Populated when appeal is filed (null otherwise)
+- `status`: Updated to "under_review" when appeal is filed
 
-**Future Enhancement:** Automated re-attribution could trigger on appeal, but currently this is a manual review process.
+This unified design means the complete history (classification + appeal) is visible in a single audit_log record, making reviewer access simpler and maintaining data integrity.
+
+**Design Rationale:** Consolidating appeals into the audit_log table keeps the immutable classification record alongside the appeal context, preventing data fragmentation and ensuring reviewers always see the complete picture.
 
 **Human Reviewer Interface:**
 
@@ -445,24 +450,19 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 - `source_ip` (string): Request IP
 - `appeal_status` (enum: none|under_review|resolved): Appeal state
 
-**Table: audit_log**
+**Table: audit_log** (unified classification and appeals table)
 - `id` (UUID): Primary key
-- `content_id` (UUID): Foreign key to submissions
+- `content_id` (UUID): Unique submission identifier
 - `creator_id` (string): Creator of the content
-- `signal_1_score` (float): Text statistics result
-- `signal_2_score` (float): Semantic analysis result
-- `final_confidence` (float): Combined score
-- `groq_reasoning` (text): LLM explanation
-- `timestamp` (ISO-8601): When recorded
-
-**Table: appeals**
-- `id` (UUID): Primary key
-- `content_id` (UUID): Foreign key to submissions
-- `creator_id` (string): Creator ID of the content being appealed
-- `creator_reasoning` (text): Appeal justification
-- `status` (enum: under_review|resolved): Appeal state
-- `timestamp` (ISO-8601): When submitted
-- `reviewer_notes` (text nullable): Human reviewer feedback
+- `timestamp` (ISO-8601): When classification occurred
+- `signal_1_score` (float): Groq semantic analysis result
+- `signal_2_score` (float): Text statistics result
+- `final_confidence` (float): Combined confidence score
+- `attribution` (enum: ai|human|uncertain): Attribution decision
+- `label` (text): Transparency label shown to user
+- `status` (enum: classified|under_review|resolved): Classification/appeal state
+- `appeal_reasoning` (text nullable): Creator's appeal justification
+- `appeal_timestamp` (ISO-8601 nullable): When appeal was submitted
 
 ## Architecture Flows with Labeled Data Passing
 

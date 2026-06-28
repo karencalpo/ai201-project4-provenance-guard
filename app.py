@@ -59,7 +59,7 @@ limiter = Limiter(
 DB_PATH = "audit_log.db"
 
 def init_db():
-    """Initialize SQLite database with audit_log and appeals tables."""
+    """Initialize SQLite database with audit_log table (includes appeals data)."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -73,17 +73,9 @@ def init_db():
             final_confidence REAL NOT NULL,
             attribution TEXT NOT NULL,
             label TEXT NOT NULL,
-            status TEXT NOT NULL
-        )
-    ''')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS appeals (
-            id TEXT PRIMARY KEY,
-            content_id TEXT NOT NULL,
-            creator_id TEXT NOT NULL,
-            creator_reasoning TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            status TEXT NOT NULL
+            status TEXT NOT NULL,
+            appeal_reasoning TEXT,
+            appeal_timestamp TEXT
         )
     ''')
     conn.commit()
@@ -113,7 +105,7 @@ def get_log(limit=10):
 
     cursor.execute('''
         SELECT id, content_id, creator_id, timestamp, signal_1_score, signal_2_score,
-               final_confidence, attribution, label, status
+               final_confidence, attribution, label, status, appeal_reasoning, appeal_timestamp
         FROM audit_log
         ORDER BY timestamp DESC
         LIMIT ?
@@ -377,20 +369,15 @@ def appeal():
             conn.close()
             return jsonify({"error": "creator_id does not match original submission"}), 400
 
-        # Update the status of the original audit_log entry to "under_review"
-        cursor.execute('''
-            UPDATE audit_log SET status = ? WHERE content_id = ?
-        ''', ("under_review", content_id))
-
-        # Create appeal record
+        # Update the original audit_log entry with appeal information
         appeal_id = str(uuid.uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        appeal_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         cursor.execute('''
-            INSERT INTO appeals
-            (id, content_id, creator_id, creator_reasoning, timestamp, status)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (appeal_id, content_id, creator_id, creator_reasoning, timestamp, "under_review"))
+            UPDATE audit_log
+            SET status = ?, appeal_reasoning = ?, appeal_timestamp = ?
+            WHERE content_id = ?
+        ''', ("under_review", creator_reasoning, appeal_timestamp, content_id))
 
         conn.commit()
         conn.close()

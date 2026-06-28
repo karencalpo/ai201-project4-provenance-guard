@@ -12,7 +12,7 @@ An API service that attributes text content as AI-generated or human-written, pr
 7. [Usage & Testing](#usage--testing)
 8. [Limitations & Edge Cases](#limitations--edge-cases)
 9. [Deployment Considerations](#deployment-considerations)
-10. [Demo Video](https://www.loom.com/share/c43ccf5c987047d0b3b313532e4b9ef0)
+10. [Demo Video](https://www.loom.com/share/cd6bd6f25acc4074923a0ac6ecc80d18)
 
 ---
 
@@ -431,9 +431,13 @@ curl -X POST http://localhost:5000/appeals \
 1. Validates content_id exists in database
 2. Validates creator_id matches original submission
 3. Validates reasoning is 20-2,000 characters
-4. Creates appeal record
-5. Updates original entry status to "under_review"
-6. Returns appeal confirmation
+4. Updates the original audit_log entry:
+   - Sets status to "under_review"
+   - Stores appeal_reasoning in the same row
+   - Records appeal_timestamp
+5. Returns appeal confirmation with appeal_id
+
+**Note:** Appeals are stored in the same audit_log table as the original classification, not a separate table. This unified design means reviewers see the complete history (classification + appeal data) in one record.
 
 **Errors:**
 - `400 Bad Request` — Invalid input or creator_id mismatch
@@ -457,7 +461,7 @@ curl 'http://localhost:5000/log?limit=5'
 {
   "entries": [
     {
-      "id": "log-entry-uuid",
+      "id": "log-entry-uuid-001",
       "content_id": "550e8400-e29b-41d4-a716-446655440000",
       "creator_id": "user-author-001",
       "timestamp": "2026-06-28T12:15:34.892103Z",
@@ -466,11 +470,32 @@ curl 'http://localhost:5000/log?limit=5'
       "final_confidence": 0.8625,
       "attribution": "human",
       "label": "This appears to be written by a human",
-      "status": "classified"
+      "status": "under_review",
+      "appeal_reasoning": "This is my original work written from personal experience at a restaurant I visited last week.",
+      "appeal_timestamp": "2026-06-28T12:18:22.451903Z"
+    },
+    {
+      "id": "log-entry-uuid-002",
+      "content_id": "660e8400-e29b-41d4-a716-446655440001",
+      "creator_id": "user-bot-002",
+      "timestamp": "2026-06-28T12:10:15.123456Z",
+      "signal_1_score": 0.0,
+      "signal_2_score": 0.32,
+      "final_confidence": 0.096,
+      "attribution": "ai",
+      "label": "This appears to be AI-generated content",
+      "status": "classified",
+      "appeal_reasoning": null,
+      "appeal_timestamp": null
     }
   ]
 }
 ```
+
+**Field Details:**
+- `status`: "classified" (initial submission) or "under_review" (appeal filed)
+- `appeal_reasoning`: null if no appeal, or the creator's reasoning text if appealed
+- `appeal_timestamp`: null if no appeal, or ISO timestamp of when appeal was filed
 
 ---
 
