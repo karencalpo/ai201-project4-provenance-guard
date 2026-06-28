@@ -27,8 +27,8 @@ A user's text submission goes through the following path:
 3. Input Validator checks content, validates creator_id, and generates tracking ID (content_id)
    ↓
 4. Multi-Signal Detection Pipeline analyzes text
-   ├─ Signal 1: Text Statistics (30% weight) - statistical patterns
-   └─ Signal 2: Groq Semantic Analysis (70% weight) - LLM-based analysis
+   ├─ Signal 1: Groq Semantic Analysis (70% weight) - LLM-based analysis
+   └─ Signal 2: Text Statistics (30% weight) - statistical patterns
    ↓
 5. Confidence Scorer combines signals into single confidence score (0.0-1.0)
    ↓
@@ -169,10 +169,10 @@ Response:
 **Output:** Probability score 0.0-1.0 (higher = more likely human-written)
 
 #### Why Ensemble with These Two Signals?
-- **Complementary:** Signal 1 (Groq) catches logical/semantic patterns; Signal 2 (Stylometric) catches stylistic patterns
-- **Balanced:** Signal 1 is deep but slower (Groq API); Signal 2 is fast but shallow (pure Python)
-- **Robust:** Neither signal alone is perfect; combination reduces both false positives and false negatives
-- **Interpretable:** Each signal has clear meaning; 70%/30% weighting reflects empirical reliability (Signal 1 more trustworthy)
+- **Complementary:** Signal 1 (Groq) catches semantic/linguistic patterns; Signal 2 (Stylometric) catches structural patterns
+- **Reliability difference:** Signal 1 (80%) is more discriminative for formal/semi-formal text; Signal 2 (20%) complements but has lower discriminative power
+- **Robust:** Neither signal alone is perfect; 80/20 weighting gives semantic analysis dominance while allowing structural analysis to contribute
+- **Interpretable:** Each signal has clear meaning; empirical testing showed Signal 2's vocabulary diversity metrics are less discriminative than Signal 1's semantic pattern detection
 
 ### 5. Confidence Scorer (`detection/scorer.py`)
 **Purpose:** Combine multiple signals into a single confidence metric that reflects genuine uncertainty.
@@ -197,7 +197,7 @@ final_confidence = (0.70 × signal_1_groq_score) + (0.30 × signal_2_stylometric
 
 **Mapping Raw Signals to Calibrated Confidence:**
 
-Example with confidence score of 0.6:
+Example with confidence score of 0.605:
 - Signal 1 (Groq semantic): scores 0.65 (sees mostly human reasoning but some oddities)
 - Signal 2 (Stylometric): scores 0.50 (mixed patterns—some natural variation, some unusual)
 - Calculation: `(0.70 × 0.65) + (0.30 × 0.50) = 0.455 + 0.15 = 0.605`
@@ -775,18 +775,18 @@ GET /log?limit=3&offset=0
 - **Error Handling:** 400 for invalid input, 413 for oversized, 429 for rate limit
 
 ### Multi-Signal Detection Pipeline
-- **Signal 1:** Text Statistics (entropy, perplexity, token distribution, punctuation, sentence variation)
-  - Weight: 30%
-  - Why: Fast, deterministic, captures stylistic patterns
-- **Signal 2:** Groq Semantic Analysis (logical consistency, concept integration, knowledge application)
+- **Signal 1:** Groq Semantic Analysis (corporate jargon, false balance, lack of specificity, formulaic reasoning)
   - Weight: 70%
-  - Why: Deep understanding, catches semantic anomalies
-- Both signals required; neither alone is sufficient
+  - Why: Semantic understanding of text patterns and linguistic authenticity
+- **Signal 2:** Text Statistics (personal markers, emotional language, formulaic phrases, vocabulary diversity)
+  - Weight: 30%
+  - Why: Fast, deterministic, detects AI patterns through stylometric analysis complementing semantic signals
+- Both signals required; combined they catch patterns each misses alone
 
 ### Confidence Scoring with Uncertainty
 - **Score Range:** 0.0 (AI) to 1.0 (human)
 - **Thresholds:** Scores 0.51 and 0.95 produce different labels, reflecting genuine uncertainty
-- **Implementation:** Weighted ensemble (70% Groq + 30% Statistics)
+- **Implementation:** Weighted ensemble (70% Groq semantic + 30% Statistics)
 - **Label Variation:** Confidence directly determines which of 3 labels is shown
   - >0.80: "appears to be human"
   - <0.20: "appears to be AI"

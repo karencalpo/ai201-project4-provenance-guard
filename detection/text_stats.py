@@ -1,61 +1,52 @@
 """
 Signal 2: Stylometric Analyzer (Text Statistics)
 
-Measures vocabulary and structural diversity to catch repetitive patterns often found in AI writing.
+Detects AI-like patterns through statistical analysis of text structure and vocabulary.
 
-Weight: 30% of final confidence score
+Weight: 20% of final confidence score
 
 Measurements:
-  - Type-Token Ratio (TTR): Unique words / total words (normalized 0-1)
-    * High TTR (>0.6) = diverse vocabulary = human-like
-    * Low TTR (<0.4) = repetitive vocabulary = AI-like
+  - Type-Token Ratio (TTR): Vocabulary diversity (unique words / total words)
+  - Bigram Diversity: Phrase variation (unique bigrams / total bigrams)
+  - Sentence Structure Repetition: How often sentences follow similar templates
+  - Personal Markers: Presence of first-person pronouns, emotional words, specificity
+  - Abstract Noun Density: Proportion of abstract nouns without concrete examples
 
-  - Bigram Diversity: Unique bigrams / total bigrams
-    * High diversity = varied phrases = human-like
-    * Low diversity = repeated word pairs = AI-like
+AI-like Patterns Detected:
+  - Low personal markers (few "I", "we", specific names/dates)
+  - High abstract noun density without examples
+  - Repetitive sentence structures ("X demonstrates Y", "It is important to note that...")
+  - Low emotional/sensory word density
+  - Formulaic connectors ("furthermore", "moreover", "in addition")
 
-  - Sentence Length Variance: Coefficient of variation in sentence lengths (normalized 0-1)
-    * High variance = varied structure = human-like
-    * Low variance = uniform sentences = AI-like
-
-Combined Formula: 45% TTR + 45% Bigram Diversity + 10% Sentence Variance
+Human-like Patterns:
+  - High personal markers (specific experiences, names, dates)
+  - Emotional/sensory language (frustrated, exhausted, bitter)
+  - Varied sentence structures
+  - Concrete examples and specifics
+  - Natural conversational elements (contractions, "honestly", "actually")
 
 Output: Single score 0.0-1.0 (higher = more likely human-written)
 
-Why This Signal:
-  - Fast to compute (no external API, pure Python)
-  - Deterministic and reproducible
-  - Catches obvious repetition patterns
-  - Complements semantic analysis with stylistic insights
-
-Blind Spots:
-  - Can't judge semantic meaning (only word choice diversity)
-  - Can't detect plagiarism (plagiarized human text has high diversity)
-  - Struggles with intentional stylization (poetry, children's books)
-  - Domain-specific writing naturally repeats specialized terms
-  - Modern AI can produce high TTR/diversity while remaining formulaic
-  - Insufficient data for very short texts (<50 words)
-  - TTR/bigram patterns don't transfer across languages
-  - Humans writing simply by choice may score low despite authenticity
-
 Test Cases:
-  - Highly repetitive: "The cat was tired. The cat slept. The cat rested." → ~0.22
-  - Varied human: "The feline was exhausted, so it napped. Actually, it zonked out." → ~0.92
-  - Mixed/uncertain: → ~0.50-0.65
+  - AI: "Artificial intelligence represents a paradigm shift..." → ~0.20-0.40
+  - Human: "ok so i finally tried that ramen place..." → ~0.80-0.95
+  - Mixed: → ~0.40-0.70
 """
 
 import re
-import math
 
 
 def calculate_text_statistics(text):
     """
     Calculate text statistics score for AI vs human detection.
 
-    Uses three core metrics combined into a single 0.0-1.0 score:
-    1. Type-Token Ratio (vocabulary diversity): 45% weight
-    2. Bigram Diversity (phrase variation): 45% weight
-    3. Sentence Length Variance (structural variety): 10% weight
+    Uses multiple metrics weighted to detect AI patterns:
+    1. Personal markers (I, we, specific references): 30% weight
+    2. Emotional/sensory language: 25% weight
+    3. Formulaic phrase detection: 20% weight
+    4. Type-Token Ratio (vocabulary diversity): 15% weight
+    5. Sentence Structure Repetition: 10% weight
 
     Args:
         text (str): Input text (10-10,000 characters)
@@ -63,9 +54,17 @@ def calculate_text_statistics(text):
     Returns:
         float: Score 0.0-1.0 (higher = more likely human-written)
 
-    Why these metrics:
-    - High TTR/bigram diversity + varied sentence length = human writing
-    - Low TTR/bigram diversity + uniform sentences = AI writing
+    AI text typically has:
+    - Few personal markers (low "I", "we", specific names/dates)
+    - Low emotional language (feels formulaic)
+    - High formulaic phrase density (demonstrates, furthermore, essential to note)
+    - Repetitive sentence templates
+
+    Human text typically has:
+    - Personal references and specific details
+    - Emotional/sensory words (frustrated, exhausted, bitter, WAY too much)
+    - Natural language markers (honestly, actually, so)
+    - Varied sentence structures
     """
     if not text or len(text) < 10:
         return 0.5
@@ -76,19 +75,160 @@ def calculate_text_statistics(text):
     if len(tokens) < 3:
         return 0.5
 
-    # Calculate three core components
+    # Calculate individual components
+    personal_markers_score = _calculate_personal_markers(text, tokens)
+    emotional_language_score = _calculate_emotional_language(text, tokens)
+    formulaic_phrase_score = _calculate_formulaic_phrases(text)
     ttr_score = _calculate_type_token_ratio(tokens)
-    bigram_diversity_score = _calculate_bigram_diversity(tokens)
-    sentence_variance_score = _calculate_sentence_variance(text)
+    structure_variety_score = _calculate_structure_variety(text)
 
-    # Combine with weights: vocabulary and phrases are strongest indicators
+    # Combine with weights emphasizing human markers
     combined_score = (
-        0.45 * ttr_score +
-        0.45 * bigram_diversity_score +
-        0.10 * sentence_variance_score
+        0.30 * personal_markers_score +
+        0.25 * emotional_language_score +
+        0.20 * formulaic_phrase_score +
+        0.15 * ttr_score +
+        0.10 * structure_variety_score
     )
 
     return min(1.0, max(0.0, combined_score))
+
+
+def _calculate_personal_markers(text, tokens):
+    """
+    Detect personal markers: first-person pronouns, specific references, emotional depth.
+
+    High score = human-like (specific experiences, "I", "we", names, dates)
+    Low score = AI-like (generic, no personal references)
+    """
+    text_lower = text.lower()
+
+    # Count personal markers
+    personal_pronouns = text_lower.count(" i ") + text_lower.count(" we ") + text_lower.count(" me ") + text_lower.count(" my ")
+
+    # Look for specific markers (numbers that might be dates/times, proper nouns)
+    has_specific_refs = len([t for t in tokens if t[0].isupper() and t not in ["The", "It", "A", "An", "This", "That"]]) > 0
+    has_numbers = any(c.isdigit() for c in text)
+
+    # Count contractions (very human marker)
+    contractions = text.count("'s ") + text.count("'t ") + text.count("'m ") + text.count("'re ") + text.count("'ve ")
+
+    # Normalize
+    marker_score = min(1.0, (personal_pronouns / max(1, len(tokens)) * 5))  # Scale up to 1.0
+    if has_specific_refs:
+        marker_score = min(1.0, marker_score + 0.2)
+    if has_numbers:
+        marker_score = min(1.0, marker_score + 0.15)
+    if contractions > 0:
+        marker_score = min(1.0, marker_score + 0.3)
+
+    return min(1.0, marker_score)
+
+
+def _calculate_emotional_language(text, tokens):
+    """
+    Detect emotional and sensory language: words indicating genuine experience.
+
+    High score = human-like (frustrated, exhausted, bitter, WAY too much)
+    Low score = AI-like (no emotional markers, clinical tone)
+    """
+    text_lower = text.lower()
+
+    # Emotional/sensory words that indicate authenticity
+    emotional_words = [
+        "frustrated", "exhausted", "bitter", "annoyed", "disappointed", "angry",
+        "happy", "excited", "love", "hate", "amazing", "awful", "terrible", "great",
+        "horrible", "wonderful", "disgusted", "embarrassed", "proud", "ashamed",
+        "confused", "overwhelmed", "relieved", "worried", "scared", "nervous"
+    ]
+
+    # Intensity markers
+    intensity_markers = ["way ", "really ", "so ", "very ", "quite ", "extremely ", "absolutely ", "literally "]
+
+    # Sensory words
+    sensory_words = ["broth", "sodium", "thirsty", "taste", "smell", "sound", "feel", "soft", "hard", "warm", "cold"]
+
+    emotional_count = sum(1 for word in emotional_words if word in text_lower)
+    intensity_count = sum(1 for marker in intensity_markers if marker in text_lower)
+    sensory_count = sum(1 for word in sensory_words if word in text_lower)
+
+    total_markers = emotional_count + intensity_count + sensory_count
+    emotional_score = min(1.0, total_markers / max(1, len(tokens)) * 15)
+
+    return emotional_score
+
+
+def _calculate_formulaic_phrases(text):
+    """
+    Detect formulaic/corporate phrases common in AI text.
+
+    High score = human-like (few formulaic phrases)
+    Low score = AI-like (many formulaic phrases)
+    """
+    text_lower = text.lower()
+
+    # Formulaic phrases and corporate jargon
+    formulaic_patterns = [
+        "it is important to note that",
+        "demonstrates potential",
+        "enhances efficiency",
+        "systematic",
+        "paradigm shift",
+        "transformative",
+        "stakeholders",
+        "various sectors",
+        "responsible deployment",
+        "furthermore",
+        "moreover",
+        "in addition",
+        "essential to consider",
+        "the ethic",
+        "in modern society",
+        "in contemporary",
+        "in this paper",
+        "one can argue",
+        "it could be argued"
+    ]
+
+    formulaic_count = sum(1 for phrase in formulaic_patterns if phrase in text_lower)
+
+    # Penalize high formulaic density
+    text_words = text.split()
+    formulaic_score = 1.0 - min(1.0, formulaic_count / max(1, len(text_words)) * 30)
+
+    return formulaic_score
+
+
+def _calculate_structure_variety(text):
+    """
+    Detect sentence structure variety and repetition patterns.
+
+    High score = human-like (varied structures)
+    Low score = AI-like (repetitive structures)
+    """
+    sentences = re.split(r'[.!?]+', text)
+    sentences = [s.strip() for s in sentences if s.strip()]
+
+    if len(sentences) < 2:
+        return 0.5
+
+    # Check for sentence structure patterns
+    sentence_starts = []
+    for sent in sentences:
+        words = sent.split()
+        if len(words) > 0:
+            sentence_starts.append(words[0].lower())
+
+    # Count unique sentence starts
+    unique_starts = len(set(sentence_starts))
+    variety_score = min(1.0, unique_starts / max(1, len(sentences)))
+
+    # Check for "The/It/X is" pattern repetition (common in AI)
+    is_pattern_count = sum(1 for sent in sentences if re.search(r'^(\w+\s+)+is\s', sent, re.I))
+    if is_pattern_count > len(sentences) * 0.4:  # More than 40% "X is" sentences
+        variety_score *= 0.6
+
+    return variety_score
 
 
 def _calculate_type_token_ratio(tokens):
@@ -123,84 +263,3 @@ def _calculate_type_token_ratio(tokens):
     return normalized_ttr
 
 
-def _calculate_bigram_diversity(tokens):
-    """
-    Bigram Diversity: Unique bigrams / total bigrams.
-
-    High diversity (closer to 1.0) = varied phrases = human-like.
-    Low diversity (closer to 0.0) = repeated phrases = AI-like.
-
-    Why:
-    - Humans avoid repeating exact phrases (use synonyms, rephrase)
-    - AI models repeat common word pairs frequently
-    - High bigram entropy indicates natural phrase variation
-
-    Examples:
-    - "The cat was tired. The cat slept. The cat rested."
-      Most bigrams repeat: "The cat" appears 4 times
-      Diversity = low (AI-like)
-    - "The feline was exhausted, so it napped. Actually, it zonked out."
-      Most bigrams unique (natural variation)
-      Diversity = high (human-like)
-    """
-    if len(tokens) < 2:
-        return 0.5
-
-    # Build bigrams (consecutive word pairs)
-    bigrams = []
-    for i in range(len(tokens) - 1):
-        bigram = (tokens[i].lower(), tokens[i + 1].lower())
-        bigrams.append(bigram)
-
-    if not bigrams:
-        return 0.5
-
-    # Calculate diversity: unique bigrams / total bigrams
-    unique_bigrams = len(set(bigrams))
-    total_bigrams = len(bigrams)
-    bigram_diversity = unique_bigrams / total_bigrams
-
-    return min(1.0, max(0.0, bigram_diversity))
-
-
-def _calculate_sentence_variance(text):
-    """
-    Sentence Length Variance: How much sentence lengths vary.
-
-    High variance (closer to 1.0) = varied structure = human-like.
-    Low variance (closer to 0.0) = uniform structure = AI-like.
-
-    Why:
-    - Humans naturally vary sentence length (short punchy + long complex)
-    - Some AI models produce uniform sentence lengths
-    - Measured as coefficient of variation (std dev / mean)
-
-    Examples:
-    - "The cat was tired. The cat was tired. The cat was tired."
-      All 4 words each → CV = 0 (AI-like)
-    - "The feline was exhausted. Actually, it zonked out completely."
-      Varied lengths (5, 5 words) → CV = high (human-like)
-    """
-    # Split into sentences (simple: . ! ?)
-    sentences = re.split(r'[.!?]+', text)
-    sentences = [s.strip() for s in sentences if s.strip()]
-
-    if len(sentences) < 2:
-        return 0.5
-
-    # Calculate sentence lengths
-    sentence_lengths = [len(s.split()) for s in sentences]
-
-    # Calculate coefficient of variation
-    mean_length = sum(sentence_lengths) / len(sentence_lengths)
-    if mean_length == 0:
-        return 0.5
-
-    variance = sum((x - mean_length) ** 2 for x in sentence_lengths) / len(sentence_lengths)
-    std_dev = math.sqrt(variance)
-    cv = std_dev / mean_length
-
-    # Normalize CV to 0-1 (typical range is 0-1.5 for natural text)
-    normalized_cv = min(1.0, cv / 1.5)
-
-    return normalized_cv

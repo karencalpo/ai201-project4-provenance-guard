@@ -76,28 +76,39 @@ def analyze_semantic(text: str) -> float:
     client = Groq(api_key=api_key)
 
     # Construct prompt following the specification
-    prompt = f"""Analyze this text for signs of AI generation vs human authorship.
+    prompt = f"""Rate this text for likelihood of being AI-generated. Look for SPECIFIC patterns, not impressions.
 
-Red flags for AI-generated content:
-- Overly formal, repetitive sentence structure (e.g., "demonstrates X through Y")
-- Excessive use of vague corporate/academic phrases ("demonstrates potential", "enhances efficiency")
-- Chains of abstract nouns without concrete examples ("systems", "methodologies", "frameworks")
-- Lack of specific details, personal anecdotes, or genuine reasoning
-- Perfect grammar with no authentic human quirks or spontaneity
+SCORE LOW (AI-likely) IF YOU FIND:
+1. Heavy use of placeholder language: "various sectors", "stakeholders", "considerations"
+2. False balance structure: Presents both sides of simple topic without actual disagreement
+3. Vague corporate phrases that repeat across AI texts: "paradigm shift", "transformative", "essential to consider"
+4. Lists formatted as "on one hand... on the other hand" with NO personal judgment
+5. Passive voice overuse - hides who is doing what
+6. Missing concrete details (no specific names, dates, examples, numbers)
+7. Generic closing that doesn't commit to anything
 
-Signs of human writing:
-- Natural variation in sentence length and structure
-- Specific examples, anecdotes, or personal perspective
-- Occasional informality or conversational tone
-- Genuine reasoning that shows thinking process
-- Unexpected connections or novel insights
+SCORE HIGH (Human-likely) IF YOU FIND:
+1. Specific claims with checkable details (names, dates, places, numbers)
+2. Personal voice: "I think", "I noticed", "in my experience"
+3. Unexpected statement or disagreement (not both-sides platitudes)
+4. Personal emotion or reaction (even if restrained)
+5. Mistakes, errors, or self-correction that shows thinking
+6. Specificity that could only come from direct experience
+7. Taking a clear position despite acknowledging complexity
 
-Text: {text}
+Text:
+{text}
 
-Respond with a single decimal number between 0.0 and 1.0:
-- 0.0 = definitely AI-generated (formulaic, corporate jargon, no personality)
-- 0.5 = completely uncertain
-- 1.0 = definitely human-written (specific, authentic, shows genuine thought)
+Count the patterns:
+- How many AI-likely patterns do you see? (count: 0-7)
+- How many human-likely patterns do you see? (count: 0-7)
+
+Respond with a single decimal between 0.0-1.0:
+- 0.0 = clear AI (6+ AI patterns, 0-1 human patterns)
+- 0.3 = probable AI (4-5 AI patterns, 0-2 human patterns)
+- 0.5 = unclear (2-3 patterns each, or no clear patterns)
+- 0.7 = probable human (0-2 AI patterns, 4-5 human patterns)
+- 1.0 = clear human (0-1 AI patterns, 6+ human patterns)
 
 Output ONLY the number, nothing else."""
 

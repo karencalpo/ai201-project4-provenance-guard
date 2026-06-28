@@ -25,6 +25,7 @@ def test_scorer():
     print("=" * 60)
 
     # Test cases: (signal_1, signal_2, expected, description)
+    # Formula: (0.70 × signal_1) + (0.30 × signal_2)
     test_cases = [
         (0.0, 0.0, 0.0, "Both signals AI-like"),
         (1.0, 1.0, 1.0, "Both signals human-like"),

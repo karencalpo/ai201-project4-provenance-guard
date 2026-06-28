@@ -21,8 +21,10 @@ def score_confidence(signal_1_score: float, signal_2_score: float) -> float:
     Applies weighted averaging formula:
         final_confidence = (0.70 × signal_1_score) + (0.30 × signal_2_score)
 
-    The 70/30 weighting prioritizes semantic analysis (Groq) over stylometrics
-    since semantic understanding is a stronger indicator of human authorship.
+    The 70/30 weighting combines semantic analysis (Groq) with stylometric pattern
+    detection. Signal 1 detects formulaic reasoning and corporate jargon at a semantic
+    level. Signal 2 detects AI patterns through personal marker detection, emotional
+    language, and formulaic phrase density—complementary to semantic analysis.
 
     Args:
         signal_1_score (float): Groq semantic analysis score (0.0-1.0)
