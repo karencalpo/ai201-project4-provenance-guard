@@ -30,7 +30,7 @@ Architecture Flow (Flow 1: Text Submission):
       └─ >0.80 → "written by a human"
       ↓ (label_text)
   API Response
-      └─ JSON: {content_id, creator_id, classification, confidence, label, signals}
+      └─ JSON: {content_id, creator_id, attribution, confidence, label, signals}
 """
 
 import json
@@ -71,7 +71,7 @@ def init_db():
             signal_1_score REAL NOT NULL,
             signal_2_score REAL NOT NULL,
             final_confidence REAL NOT NULL,
-            classification TEXT NOT NULL,
+            attribution TEXT NOT NULL,
             label TEXT NOT NULL,
             status TEXT NOT NULL
         )
@@ -89,7 +89,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-def log_to_audit(content_id, creator_id, signal_1_score, signal_2_score, final_confidence, classification, label, status="classified"):
+def log_to_audit(content_id, creator_id, signal_1_score, signal_2_score, final_confidence, attribution, label, status="classified"):
     """Write structured entry to SQLite audit log with both signals."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -98,9 +98,9 @@ def log_to_audit(content_id, creator_id, signal_1_score, signal_2_score, final_c
 
     cursor.execute('''
         INSERT INTO audit_log
-        (id, content_id, creator_id, timestamp, signal_1_score, signal_2_score, final_confidence, classification, label, status)
+        (id, content_id, creator_id, timestamp, signal_1_score, signal_2_score, final_confidence, attribution, label, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (entry_id, content_id, creator_id, timestamp, signal_1_score, signal_2_score, final_confidence, classification, label, status))
+    ''', (entry_id, content_id, creator_id, timestamp, signal_1_score, signal_2_score, final_confidence, attribution, label, status))
 
     conn.commit()
     conn.close()
@@ -113,7 +113,7 @@ def get_log(limit=10):
 
     cursor.execute('''
         SELECT id, content_id, creator_id, timestamp, signal_1_score, signal_2_score,
-               final_confidence, classification, label, status
+               final_confidence, attribution, label, status
         FROM audit_log
         ORDER BY timestamp DESC
         LIMIT ?
@@ -180,7 +180,7 @@ def validate_and_prepare(data):
 @limiter.limit("10 per minute")
 def submit():
     """
-    POST /submit: Submit text for AI/human classification.
+    POST /submit: Submit text for AI/human attribution.
 
     Request:
         POST /submit
@@ -190,7 +190,7 @@ def submit():
         {
             "content_id": "uuid",
             "creator_id": "user-123",
-            "classification": "human|ai|uncertain",
+            "attribution": "human|ai|uncertain",
             "confidence": 0.0-1.0,
             "label": "transparency text",
             "signals": {
@@ -225,7 +225,7 @@ def submit():
 
         # Label Generator: Map confidence to transparency text
         label_result = generate_label(final_confidence)
-        classification = label_result["classification"]
+        attribution = label_result["attribution"]
         label = label_result["label"]
 
         # Log to audit database with both signals
@@ -235,7 +235,7 @@ def submit():
             signal_1_score=signal_1_score,
             signal_2_score=signal_2_score,
             final_confidence=final_confidence,
-            classification=classification,
+            attribution=attribution,
             label=label,
             status="classified"
         )
@@ -244,7 +244,7 @@ def submit():
         response = {
             "content_id": content_id,
             "creator_id": creator_id,
-            "classification": classification,
+            "attribution": attribution,
             "confidence": round(final_confidence, 2),
             "label": label,
             "signals": {
@@ -278,7 +278,7 @@ def log():
                     "signal_1_score": 0.90,
                     "signal_2_score": 0.85,
                     "final_confidence": 0.88,
-                    "classification": "human",
+                    "attribution": "human",
                     "label": "This appears to be written by a human",
                     "status": "classified"
                 },
@@ -303,7 +303,7 @@ def log():
 @limiter.limit("10 per minute")
 def appeal():
     """
-    POST /appeals: Submit an appeal for a classification decision.
+    POST /appeals: Submit an appeal for a attribution decision.
 
     Request:
         POST /appeals

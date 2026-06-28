@@ -14,7 +14,7 @@ Provenance Guard is an API service that classifies text content as AI-generated 
 - ✅ Confidence Scorer - weighted ensemble (70% Signal 1 + 30% Signal 2)
 - ✅ Label Generator - three transparency variants based on thresholds
 - ✅ Audit logging - captures both signal scores + combined confidence
-- ✅ Database schema - SQLite with signal_1_score, signal_2_score, final_confidence, classification, label
+- ✅ Database schema - SQLite with signal_1_score, signal_2_score, final_confidence, attribution, label
 - ✅ Rate limiting (10 req/min per IP)
 - ✅ Error handling (400, 413, 429, 500)
 
@@ -44,7 +44,7 @@ A user's text submission goes through the following path:
    ↓
 7. Audit Logger records decision, signals, and metadata
    ↓
-8. API Response returned with classification, confidence, and label
+8. API Response returned with attribution, confidence, and label
 ```
 
 ## System Components
@@ -71,7 +71,7 @@ Response:
 {
   "content_id": "uuid-1234",
   "creator_id": "user-12345",
-  "classification": "human",
+  "attribution": "human",
   "confidence": 0.92,
   "label": "This appears to be written by a human",
   "signals": {
@@ -88,7 +88,7 @@ Response:
 - **Limit:** 10 requests per minute per IP address
 - **Implementation:** Flask-Limiter middleware
 - **Response:** 429 Too Many Requests when exceeded
-- **Reasoning:** 10 req/min supports typical user workflows (a few classifications per minute) while preventing automated scraping or DoS attacks
+- **Reasoning:** 10 req/min supports typical user workflows (a few attributions per minute) while preventing automated scraping or DoS attacks
 
 **Database Impact:** Stores submission attempt records with timestamps and IP addresses in SQLite for audit purposes.
 
@@ -128,7 +128,7 @@ Response:
 **Why This Signal:**
 - Catches AI patterns that pure statistics miss (specific linguistic tells of corporate AI output)
 - Leverages language model's understanding of authenticity vs. formulaic writing
-- Fast enough for real-time classification (single API call)
+- Fast enough for real-time attribution (single API call)
 
 **Blind Spots (What It Can't Capture):**
 1. **AI trained to mimic authenticity** — If AI is fine-tuned to include anecdotes and conversational tone, Signal 1 won't detect it
@@ -250,17 +250,17 @@ Used when: Signals conflict or are inconclusive
 - Consistent framing: "appears to be" rather than definitive statements
 
 ### 7. Audit Logger (`middleware/audit_logger.py`)
-**Purpose:** Create an immutable record of all classification decisions for compliance, debugging, and appeals.
+**Purpose:** Create an immutable record of all attribution decisions for compliance, debugging, and appeals.
 
-**What Gets Logged:** Every classification decision records:
+**What Gets Logged:** Every attribution decision records:
 - `content_id`: Unique identifier for this submission
 - `creator_id`: ID of the creator who submitted this content
-- `timestamp`: When classification occurred
+- `timestamp`: When attribution occurred
 - `text_hash`: SHA-256 hash of submitted text (for privacy, not full text)
 - `signal_1_score`: Text statistics analyzer output
 - `signal_2_score`: Semantic analyzer output
 - `final_confidence`: Combined confidence score
-- `classification`: Final label ("human" or "ai")
+- `attribution`: Final label ("human" or "ai")
 - `transparency_label`: Exact text shown to user
 - `source_ip`: IP address of request
 - `groq_reasoning`: Explanation from Groq API (when available)
@@ -268,7 +268,7 @@ Used when: Signals conflict or are inconclusive
 **Storage:** SQLite `audit_log` table, append-only (no modifications)
 
 **Queries:**
-- `GET /log` returns last 100 classification records in JSON format
+- `GET /log` returns last 100 attribution records in JSON format
 - Includes at least 3 complete entries for verification
 
 **Example Output:**
@@ -282,7 +282,7 @@ Used when: Signals conflict or are inconclusive
     "signal_1_score": 0.88,
     "signal_2_score": 0.94,
     "final_confidence": 0.92,
-    "classification": "human",
+    "attribution": "human",
     "transparency_label": "This appears to be written by a human",
     "source_ip": "192.168.1.1",
     "groq_reasoning": "Natural thought progression and genuine knowledge integration..."
@@ -295,7 +295,7 @@ Used when: Signals conflict or are inconclusive
     "signal_1_score": 0.15,
     "signal_2_score": 0.08,
     "final_confidence": 0.10,
-    "classification": "ai",
+    "attribution": "ai",
     "transparency_label": "This appears to be AI-generated content",
     "source_ip": "192.168.1.2",
     "groq_reasoning": "Formulaic structure and pattern-matching without genuine reasoning..."
@@ -308,7 +308,7 @@ Used when: Signals conflict or are inconclusive
     "signal_1_score": 0.52,
     "signal_2_score": 0.48,
     "final_confidence": 0.50,
-    "classification": "uncertain",
+    "attribution": "uncertain",
     "transparency_label": "We're uncertain about the origin of this content. It may be AI-generated or human-written.",
     "source_ip": "192.168.1.3",
     "groq_reasoning": "Conflicting signals; could be human with AI-like patterns or AI with human-like style..."
@@ -317,14 +317,14 @@ Used when: Signals conflict or are inconclusive
 ```
 
 ### 8. Appeals Handler (`appeals/handler.py`)
-**Purpose:** Allow creators to contest classifications they believe are incorrect.
+**Purpose:** Allow creators to contest attributions they believe are incorrect.
 
 **Workflow:**
 1. Creator submits appeal with reasoning
 2. System validates appeal format
 3. Submission status changes to "under_review"
 4. Appeal is logged alongside original decision
-5. Human reviewer can later re-evaluate (automated re-classification not implemented)
+5. Human reviewer can later re-evaluate (automated re-attribution not implemented)
 
 **Endpoint:**
 ```json
@@ -346,14 +346,14 @@ Response:
 
 **What Gets Recorded:**
 - `appeal_id`: Unique appeal identifier
-- `submission_id`: Links to original classification
+- `submission_id`: Links to original attribution
 - `creator_reasoning`: Text of creator's explanation
 - `timestamp`: When appeal was submitted
 - `status`: "under_review" (awaiting human evaluation)
 
 **Stored:** SQLite `appeals` table, linked to original submission in audit log
 
-**Future Enhancement:** Automated re-classification could trigger on appeal, but currently this is a manual review process.
+**Future Enhancement:** Automated re-attribution could trigger on appeal, but currently this is a manual review process.
 
 **Human Reviewer Interface:**
 
@@ -363,7 +363,7 @@ When a reviewer opens the appeal queue, they see a sortable table with these col
 |--------|---------------|---------|
 | **Appeal ID** | appeal-uuid-001 | Unique identifier for tracking |
 | **Submission Date** | 2026-06-26 14:32:15 | When original content was submitted |
-| **Creator's Reasoning** | "This is my original poem..." | Why they dispute the classification |
+| **Creator's Reasoning** | "This is my original poem..." | Why they dispute the attribution |
 | **Original Classification** | "AI-generated" | What the system decided |
 | **Confidence Score** | 0.18 | How confident was the system? |
 | **Signal Breakdown** | Stats: 0.15, Semantic: 0.20 | Where did signals disagree? |
@@ -372,8 +372,8 @@ When a reviewer opens the appeal queue, they see a sortable table with these col
 | **Status** | under_review | Current state of appeal |
 
 **Reviewer Decision Options:**
-1. **Agree with Classification** → Set status to "resolved", note: "Reviewed; classification stands"
-2. **Overturn Classification** → Update original classification, set status to "resolved_overturned", note: "Classification was incorrect. Updated to: [new label]"
+1. **Agree with Classification** → Set status to "resolved", note: "Reviewed; attribution stands"
+2. **Overturn Classification** → Update original attribution, set status to "resolved_overturned", note: "Classification was incorrect. Updated to: [new label]"
 3. **Request More Information** → Set status to "requires_info", message back to creator asking for clarification
 
 Every reviewer action is logged with timestamp and reviewer ID for accountability.
@@ -430,7 +430,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 - `id` (UUID): Primary key (content_id)
 - `creator_id` (string): ID of content creator
 - `text_hash` (SHA-256): Hash of original text
-- `classification` (enum: human|ai|uncertain): Final decision
+- `attribution` (enum: human|ai|uncertain): Final decision
 - `confidence` (float 0-1): Confidence score
 - `label` (text): Transparency label shown to user
 - `timestamp` (ISO-8601): When classified
@@ -523,7 +523,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
         │ API Response     │
         │ (JSON)           │
         └────────┬─────────┘
-                │ {"content_id", "creator_id", "classification", "confidence", "label", "signals"}
+                │ {"content_id", "creator_id", "attribution", "confidence", "label", "signals"}
                 ↓
         ┌──────────────────┐
         │ User/Client      │
@@ -596,7 +596,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 │ Human Reviewer       │
 │ - Queries appeals    │
 │ - Reads original     │
-│   classification     │
+│   attribution     │
 │ - Reviews creator    │
 │   reasoning          │
 │ - Makes decision:    │
@@ -614,8 +614,8 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 ```
 
 **Data Legend:**
-- `submission_id`: Links to original classification
-- `creator_reasoning`: Why creator disputes classification (20-2000 chars)
+- `submission_id`: Links to original attribution
+- `creator_reasoning`: Why creator disputes attribution (20-2000 chars)
 - `appeal_id`: Unique identifier for this appeal (UUID)
 - `status`: Appeal state ("under_review", "resolved", "requires_info")
 
@@ -625,13 +625,13 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 | Endpoint | Method | Purpose | Rate Limit |
 |----------|--------|---------|-----------|
-| `/submit` | POST | Submit text for AI/human classification | 10 req/min per IP |
-| `/appeals` | POST | Appeal a classification decision | 10 req/min per IP |
-| `/log` | GET | Retrieve audit log of all classifications | 30 req/min per IP |
+| `/submit` | POST | Submit text for AI/human attribution | 10 req/min per IP |
+| `/appeals` | POST | Appeal a attribution decision | 10 req/min per IP |
+| `/log` | GET | Retrieve audit log of all attributions | 30 req/min per IP |
 
 ### Endpoint 1: POST `/submit`
 
-**Purpose:** Submit text content for classification
+**Purpose:** Submit text content for attribution
 
 **Request Body:**
 ```json
@@ -650,7 +650,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 {
   "content_id": "550e8400-e29b-41d4-a716-446655440000",
   "creator_id": "user-12345",
-  "classification": "human",
+  "attribution": "human",
   "confidence": 0.86,
   "label": "This appears to be written by a human",
   "signals": {
@@ -663,7 +663,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 **Response Explanation:**
 - `content_id`: Unique tracking ID (UUID)
 - `creator_id`: Original creator ID from request
-- `classification`: "ai" (confidence < 0.35), "uncertain" (0.35-0.70), or "human" (> 0.70)
+- `attribution`: "ai" (confidence < 0.35), "uncertain" (0.35-0.70), or "human" (> 0.70)
 - `confidence`: Rounded to 2 decimals: (0.70 × signal_1) + (0.30 × signal_2)
 - `label`: Transparency text shown to user (one of three variants)
 - `signals`: Individual scores from both analyzers
@@ -678,7 +678,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 ### Endpoint 2: POST `/appeals`
 
-**Purpose:** Contest a classification decision
+**Purpose:** Contest a attribution decision
 
 **Request Body:**
 ```json
@@ -724,7 +724,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 
 ### Endpoint 3: GET `/log`
 
-**Purpose:** Retrieve audit log of classifications and appeals
+**Purpose:** Retrieve audit log of attributions and appeals
 
 **Query Parameters:**
 - `limit` (optional, default=100, max=500): Number of records to return
@@ -750,7 +750,7 @@ GET /log?limit=3&offset=0
       "signal_1_score": 0.88,
       "signal_2_score": 0.94,
       "final_confidence": 0.92,
-      "classification": "human",
+      "attribution": "human",
       "label": "This appears to be written by a human",
       "source_ip": "192.168.1.1",
       "appeal_status": "none"
@@ -763,7 +763,7 @@ GET /log?limit=3&offset=0
       "signal_1_score": 0.15,
       "signal_2_score": 0.08,
       "final_confidence": 0.10,
-      "classification": "ai",
+      "attribution": "ai",
       "label": "This appears to be AI-generated content",
       "source_ip": "192.168.1.2",
       "appeal_status": "none"
@@ -776,7 +776,7 @@ GET /log?limit=3&offset=0
       "signal_1_score": 0.52,
       "signal_2_score": 0.48,
       "final_confidence": 0.50,
-      "classification": "uncertain",
+      "attribution": "uncertain",
       "label": "We're uncertain about the origin of this content. It may be AI-generated or human-written.",
       "source_ip": "192.168.1.3",
       "appeal_status": "none"
@@ -843,7 +843,7 @@ Exactly three variants, displayed to non-technical readers:
 - **Action:** Records appeal, updates submission status to "under_review"
 - **Output:** appeal_id and confirmation message
 - **Logging:** Appeal stored in `appeals` table, linked to original submission
-- **Current Limitation:** Requires human review (automated re-classification not implemented)
+- **Current Limitation:** Requires human review (automated re-attribution not implemented)
 
 ### Rate Limiting
 - **Limit:** 10 requests per minute per IP address
@@ -853,11 +853,11 @@ Exactly three variants, displayed to non-technical readers:
 - **Tracking:** All request attempts logged for compliance
 
 ### Audit Log
-- **Access:** GET `/log` returns last 100 classification records
-- **Contents:** content_id, creator_id, timestamp, signal scores, confidence, classification, label, IP, reasoning
+- **Access:** GET `/log` returns last 100 attribution records
+- **Contents:** content_id, creator_id, timestamp, signal scores, confidence, attribution, label, IP, reasoning
 - **Storage:** SQLite `audit_log` table
 - **Immutable:** Append-only, no modifications
-- **Example:** Returns at least 3 complete entries showing variety of classifications
+- **Example:** Returns at least 3 complete entries showing variety of attributions
 
 ## Implementation Files
 
@@ -976,7 +976,7 @@ A human translates a German article to English. Translation is accurate but:
 "Using the provided signal definitions and submission flow diagram, create:
 1. A Flask application skeleton (app.py) with POST /submit endpoint
    - Accept JSON with 'text' and 'creator_id' fields
-   - Return JSON with content_id, creator_id, classification, confidence, label, signals
+   - Return JSON with content_id, creator_id, attribution, confidence, label, signals
    - For now, use dummy signal values (we'll replace with real logic next)
    
 2. A signal_1 function in detection/text_stats.py that calculates:
@@ -1108,7 +1108,7 @@ Use the measurements and why-it-matters context from the spec to inform your imp
    - After successful appeal: query submissions table, verify appeal_status changed to "under_review"
    - Query appeals table: verify record exists with correct fields and creator_id
    - Query audit_log: verify appeal event was logged
-   - Verify original classification is unchanged (only status changed)
+   - Verify original attribution is unchanged (only status changed)
 
 4. **Rate Limiting:**
    - Submit 11 appeals in 60 seconds from same IP → 11th should get 429 response
@@ -1140,6 +1140,6 @@ Use the measurements and why-it-matters context from the spec to inform your imp
 8. Add audit logging functionality
 9. Implement appeal workflow
 10. Test with sample AI and human-written texts
-11. **Test edge cases:** Submit stream-of-consciousness poetry, technical docs, translated content to verify appropriate classifications
+11. **Test edge cases:** Submit stream-of-consciousness poetry, technical docs, translated content to verify appropriate attributions
 12. Verify audit log contains required entries
 13. Test rate limiting and error handling

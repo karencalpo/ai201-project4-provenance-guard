@@ -54,7 +54,7 @@ Limiter(
 - **Editorial workflow:** An editor reviewing content might submit 5-10 pieces per hour (sustainable, ~0.08-0.17 req/sec)
 - **API fairness:** One request every 6 seconds allows human-paced workflows
 - **Abuse prevention:** Blocks automated scrapers/bots (which typically attempt 100s-1000s req/min)
-- **Industry standard:** Comparable to rate limits on GPT API (3 req/min for free tier), Perspective API (1 req/sec), and other content classification services
+- **Industry standard:** Comparable to rate limits on GPT API (3 req/min for free tier), Perspective API (1 req/sec), and other content attribution services
 
 **Who this blocks:**
 - Automated scrapers: ❌ Would need 10,000+ minutes to check 100,000 texts
@@ -96,7 +96,7 @@ The first 10 requests return **200 OK**, and requests 11-12 return **429 Too Man
 ## API Endpoints
 
 ### POST /submit
-Submit text for AI/human classification.
+Submit text for AI/human attribution.
 
 **Request:**
 ```json
@@ -111,7 +111,7 @@ Submit text for AI/human classification.
 {
   "content_id": "550e8400-e29b-41d4-a716-446655440000",
   "creator_id": "user-12345",
-  "classification": "human",
+  "attribution": "human",
   "confidence": 0.86,
   "label": "This appears to be written by a human",
   "signals": {
@@ -126,9 +126,9 @@ Submit text for AI/human classification.
 - `creator_id`: non-empty string
 
 **Thresholds:**
-- confidence < 0.35 → classification: "ai"
-- confidence 0.35-0.70 → classification: "uncertain"
-- confidence > 0.70 → classification: "human"
+- confidence < 0.35 → attribution: "ai"
+- confidence 0.35-0.70 → attribution: "uncertain"
+- confidence > 0.70 → attribution: "human"
 
 **Rate Limit:** 10 per minute per IP
 **Errors:** 
@@ -140,7 +140,7 @@ Submit text for AI/human classification.
 ---
 
 ### POST /appeals
-Appeal a classification decision.
+Appeal a attribution decision.
 
 **Request:**
 ```json
@@ -182,7 +182,7 @@ Appeal a classification decision.
 ---
 
 ### GET /log
-Retrieve audit log of classifications and appeals.
+Retrieve audit log of attributions and appeals.
 
 **Query Parameters:**
 - `limit` (optional, default=100, max=500): Number of records to return
@@ -200,7 +200,7 @@ Retrieve audit log of classifications and appeals.
       "signal_1_score": 0.90,
       "signal_2_score": 0.78,
       "final_confidence": 0.8625,
-      "classification": "human",
+      "attribution": "human",
       "label": "This appears to be written by a human",
       "status": "classified"
     }
@@ -230,9 +230,36 @@ Each audit log entry captures:
 - `signal_1_score` - Groq semantic analyzer result (0.0-1.0)
 - `signal_2_score` - Text statistics analyzer result (0.0-1.0)
 - `final_confidence` - Combined weighted confidence (0.0-1.0)
-- `classification` - Attribution result: "ai", "human", or "uncertain"
+- `attribution` - Attribution result: "ai", "human", or "uncertain"
 - `label` - Transparency text shown to user
 - `status` - "classified" or "under_review" (if appeal filed)
+
+### Generating the Example Entries
+
+Run these curl commands to generate the 3 documented audit log entries:
+
+**Generate Entry 1: Human-Written Content**
+```bash
+curl -X POST http://localhost:5000/submit \
+  -H "Content-Type: application/json" \
+  -d '{"text":"ok so i finally tried that ramen place downtown and honestly underwhelming. the broth was lukewarm and the noodles mushy. not worth the hype.", "creator_id":"user-author-001"}'
+```
+
+**Generate Entry 2: AI-Generated Content**
+```bash
+curl -X POST http://localhost:5000/submit \
+  -H "Content-Type: application/json" \
+  -d '{"text":"The strategic implementation of comprehensive digital transformation initiatives demonstrates significant potential to leverage synergistic methodologies across enterprise stakeholder ecosystems. Our integrated approach facilitates the optimization of operational paradigms through enhanced collaborative frameworks.","creator_id":"user-bot-002"}'
+```
+
+**Generate Entry 3: Uncertain (Mixed) Content**
+```bash
+curl -X POST http://localhost:5000/submit \
+  -H "Content-Type: application/json" \
+  -d '{"text":"I attended a meeting yesterday about the new marketing initiatives. We discussed various approaches to enhance brand visibility and improve customer engagement through strategic partnerships. The team provided valuable insights on market trends.","creator_id":"user-mixed-003"}'
+```
+
+---
 
 ### Example Audit Log Entries
 
@@ -246,7 +273,7 @@ Each audit log entry captures:
   "signal_1_score": 0.90,
   "signal_2_score": 0.78,
   "final_confidence": 0.8625,
-  "classification": "human",
+  "attribution": "human",
   "label": "This appears to be written by a human",
   "status": "classified"
 }
@@ -265,7 +292,7 @@ Each audit log entry captures:
   "signal_1_score": 0.0,
   "signal_2_score": 0.32,
   "final_confidence": 0.096,
-  "classification": "ai",
+  "attribution": "ai",
   "label": "This appears to be AI-generated content",
   "status": "classified"
 }
@@ -284,7 +311,7 @@ Each audit log entry captures:
   "signal_1_score": 0.50,
   "signal_2_score": 0.55,
   "final_confidence": 0.5155,
-  "classification": "uncertain",
+  "attribution": "uncertain",
   "label": "We're uncertain about the origin of this content. It may be AI-generated or human-written.",
   "status": "under_review"
 }
@@ -298,6 +325,78 @@ Each audit log entry captures:
 2. **AI (0.10)** - Confident AI: corporate jargon + no personal voice
 3. **Uncertain (0.52)** - Mixed signals: personal + formal language → appeal filed
 
+### Appeal Example
+
+When a creator files an appeal for Entry 1 (Human-Written Content):
+
+**File Appeal for Entry 1:**
+```bash
+# Note: Replace the content_id with the actual ID from Entry 1 response
+curl -X POST http://localhost:5000/appeals \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content_id": "a40831e5-138e-405e-8656-96350b37bb62",
+    "creator_id": "user-author-001",
+    "creator_reasoning": "This is my original work written from personal experience at a restaurant I visited last week."
+  }'
+```
+
+---
+
+### View the Complete Audit Log
+
+After running all 3 submissions and the appeal, view the audit log:
+
+```bash
+curl http://localhost:5000/log?limit=5 | jq '.entries'
+```
+
+---
+
+### Appeal Response Example
+
+**Appeal Request:**
+```bash
+curl -X POST http://localhost:5000/appeals \
+  -H "Content-Type: application/json" \
+  -d '{
+    "content_id": "a40831e5-138e-405e-8656-96350b37bb62",
+    "creator_id": "user-author-001",
+    "creator_reasoning": "This is my original work written from personal experience at a restaurant I visited last week."
+  }'
+```
+
+**Appeal Response (200 OK):**
+```json
+{
+  "appeal_id": "appeal-uuid-12345",
+  "content_id": "a40831e5-138e-405e-8656-96350b37bb62",
+  "creator_id": "user-author-001",
+  "status": "under_review",
+  "message": "Your appeal has been received and logged. A human reviewer will examine your case."
+}
+```
+
+**Effect on Audit Log:**
+After the appeal is filed, the original entry's `status` changes from `"classified"` to `"under_review"`:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "content_id": "a40831e5-138e-405e-8656-96350b37bb62",
+  "creator_id": "user-author-001",
+  "timestamp": "2026-06-28T12:15:34.892103Z",
+  "signal_1_score": 0.90,
+  "signal_2_score": 0.78,
+  "final_confidence": 0.8625,
+  "attribution": "human",
+  "label": "This appears to be written by a human",
+  "status": "under_review"
+}
+```
+
+The appeal is also logged separately in the `appeals` table for human review, maintaining a complete audit trail.
+
 ---
 
 ## Testing
@@ -308,7 +407,7 @@ curl -X POST http://localhost:5000/submit \
   -H "Content-Type: application/json" \
   -d '{"text":"ok so i finally tried that ramen place downtown and honestly underwhelming.", "creator_id":"user-123"}'
 ```
-Expected: `"classification": "human"`, confidence ~0.85+, label about being "written by a human"
+Expected: `"attribution": "human"`, confidence ~0.85+, label about being "written by a human"
 
 ### Test 2: AI-Generated Content
 ```bash
@@ -316,7 +415,7 @@ curl -X POST http://localhost:5000/submit \
   -H "Content-Type: application/json" \
   -d '{"text":"The implementation of comprehensive digital transformation strategies demonstrates potential to leverage synergistic methodologies across stakeholder ecosystems.", "creator_id":"user-ai"}'
 ```
-Expected: `"classification": "ai"`, confidence ~0.10, label about being "AI-generated content"
+Expected: `"attribution": "ai"`, confidence ~0.10, label about being "AI-generated content"
 
 ### Test 3: Uncertain Content
 ```bash
@@ -324,7 +423,7 @@ curl -X POST http://localhost:5000/submit \
   -H "Content-Type: application/json" \
   -d '{"text":"I attended a meeting yesterday about marketing initiatives. We discussed approaches to enhance brand visibility and improve customer engagement through partnerships.", "creator_id":"user-uncertain"}'
 ```
-Expected: `"classification": "uncertain"`, confidence ~0.50, label about being "uncertain"
+Expected: `"attribution": "uncertain"`, confidence ~0.50, label about being "uncertain"
 
 ### Test 4: Appeal a Classification
 ```bash

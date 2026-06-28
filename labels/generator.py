@@ -13,7 +13,7 @@ Three distinct label variants based on thresholds:
 
 def generate_label(confidence: float) -> dict:
     """
-    Map confidence score to transparency label and classification.
+    Map confidence score to transparency label and attribution.
 
     Args:
         confidence (float): Score 0.0-1.0 from confidence scorer
@@ -21,7 +21,7 @@ def generate_label(confidence: float) -> dict:
 
     Returns:
         dict: {
-            "classification": "ai" | "uncertain" | "human",
+            "attribution": "ai" | "uncertain" | "human",
             "label": "Plain language transparency text...",
             "confidence": confidence (echoed back for reference)
         }
@@ -44,27 +44,27 @@ def generate_label(confidence: float) -> dict:
 
     if confidence < 0.35:
         return {
-            "classification": "ai",
+            "attribution": "ai",
             "label": "This appears to be AI-generated content",
             "confidence": round(confidence, 2)
         }
     elif confidence > 0.70:
         return {
-            "classification": "human",
+            "attribution": "human",
             "label": "This appears to be written by a human",
             "confidence": round(confidence, 2)
         }
     else:
         return {
-            "classification": "uncertain",
+            "attribution": "uncertain",
             "label": "We're uncertain about the origin of this content. It may be AI-generated or human-written.",
             "confidence": round(confidence, 2)
         }
 
 
-def get_classification(confidence: float) -> str:
+def get_attribution(confidence: float) -> str:
     """
-    Get just the classification string for a confidence score.
+    Get just the attribution string for a confidence score.
 
     Args:
         confidence (float): Score 0.0-1.0
@@ -73,7 +73,7 @@ def get_classification(confidence: float) -> str:
         str: "ai" | "uncertain" | "human"
     """
     result = generate_label(confidence)
-    return result["classification"]
+    return result["attribution"]
 
 
 def get_label_text(confidence: float) -> str:
