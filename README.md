@@ -966,7 +966,6 @@ Error: table audit_log has no column named attribution
 | **Finding bugs** | ✗ Missed return type mismatch, schema mismatch | ✓ Caught during testing |
 | **Design decisions** | ✗ Assumed diversity = human | ✓ Questioned assumption, directed redesign |
 | **Bulk refactoring** | ✓ Renamed 200+ occurrences across codebase | ✓ Caught database schema issue |
-| **Documentation** | ✓ Generated comprehensive README | ✓ Iterated with feedback for quality |
 | **Validation** | ✗ Can't run tests or verify behavior | ✓ Ran tests, verified scores, caught issues |
 
 **Lesson:** AI excels at generating code and documentation from clear specs. Humans are essential for validation, assumption-checking, and iterative refinement.
