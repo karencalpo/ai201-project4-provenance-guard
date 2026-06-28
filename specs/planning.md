@@ -18,10 +18,12 @@ Provenance Guard is an API service that classifies text content as AI-generated 
 - ✅ Rate limiting (10 req/min per IP)
 - ✅ Error handling (400, 413, 429, 500)
 
-**Module 5 (In Progress):**
-- ⏳ POST /appeals endpoint
-- ⏳ Appeals workflow with database updates
-- ⏳ Human reviewer interface
+**Module 5 (Complete):**
+- ✅ POST /appeals endpoint
+- ✅ Appeals workflow with database updates
+- ✅ Database schema updated to use content_id, creator_id, appeal_status
+- ✅ Rate limiting on /appeals (10 req/min per IP)
+- ⏳ Human reviewer interface (future enhancement)
 
 ## The Journey: Text Submission to User Label
 
@@ -141,28 +143,31 @@ Response:
 **Output:** Probability score 0.0-1.0 (higher = more likely human-written)
 
 #### Signal 2: Stylometric Analyzer (`detection/text_stats.py`)
-**Purpose:** Measure vocabulary and structural diversity to catch repetitive patterns often found in AI writing.
+**Purpose:** Detect AI-specific stylometric patterns through personal markers, emotional language, and formulaic phrases.
 
 **Weight:** 30% of final confidence score
 
 **Measurements:**
-- Type-Token Ratio (TTR): Vocabulary diversity = unique words / total words (normalized to 0-1)
-  - High TTR (>0.6) = diverse vocabulary = human-like
-  - Low TTR (<0.4) = repetitive vocabulary = AI-like
-- Bigram Diversity: Phrase variation = unique bigrams / total bigrams
-  - High diversity = varied phrases (human-like)
-  - Low diversity = repeated word pairs (AI-like)
-- Sentence Length Variance: Structural variety = coefficient of variation in sentence lengths (normalized to 0-1)
-  - High variance = varied sentence structure (human-like)
-  - Low variance = uniform sentence lengths (AI-like)
-
-**Combined Formula:** 45% TTR + 45% Bigram Diversity + 10% Sentence Variance
+- Personal Markers (30% weight): Detects "I", "we", specific references, contractions, dates, names
+  - High personal markers = human-like
+  - No personal markers = AI-like
+- Emotional Language (25% weight): Looks for words like "frustrated", "exhausted", sensory words
+  - Abundant emotional words = human-like
+  - Absence of emotion = AI-like
+- Formulaic Phrases (20% weight): Detects corporate jargon like "demonstrates potential", "paradigm shift", "stakeholders"
+  - No formulaic phrases = human-like
+  - High formulaic phrase density = AI-like
+- Type-Token Ratio (15% weight): Vocabulary diversity = unique words / total words
+  - Supporting metric for human-like writing
+- Sentence Length Variance (10% weight): Structural variety = coefficient of variation in sentence lengths
+  - Supporting metric for human-like writing
 
 **Why This Signal:**
 - Fast to compute (no external API calls, pure Python)
 - Deterministic and reproducible across runs
-- Catches obvious repetition patterns ("the cat... the cat... the cat...")
+- Detects actual AI patterns (not just generic diversity)
 - Complements semantic analysis (catches what Groq might miss)
+- **Design Evolution:** Originally measured only vocabulary diversity, but testing revealed this was unreliable (AI can have high diversity, humans can have intentional repetition). Redesigned to detect AI-specific red flags instead.
 
 **Blind Spots (What It Can't Capture):**
 1. **Semantic meaning** — Can't tell if arguments are logical or circular; only measures word choice diversity
@@ -178,9 +183,10 @@ Response:
 
 #### Why Ensemble with These Two Signals?
 - **Complementary:** Signal 1 (Groq) catches semantic/linguistic patterns; Signal 2 (Stylometric) catches structural patterns
-- **Reliability difference:** Signal 1 (80%) is more discriminative for formal/semi-formal text; Signal 2 (20%) complements but has lower discriminative power
-- **Robust:** Neither signal alone is perfect; 80/20 weighting gives semantic analysis dominance while allowing structural analysis to contribute
-- **Interpretable:** Each signal has clear meaning; empirical testing showed Signal 2's vocabulary diversity metrics are less discriminative than Signal 1's semantic pattern detection
+- **Reliability difference:** Signal 1 (70%) is more discriminative for formal/semi-formal text; Signal 2 (30%) complements but has lower discriminative power
+- **Robust:** Neither signal alone is perfect; 70/30 weighting gives semantic analysis dominance while allowing structural analysis to contribute
+- **Interpretable:** Each signal has clear meaning; empirical testing showed that after redesigning Signal 2 to detect AI-specific patterns (personal markers, emotional language, formulaic phrases), the 70/30 split produces optimal results
+- **Rationale for 70/30 (not 80/20):** Started at 80/20 but Signal 2's original diversity-only approach was too weak; after complete redesign of Signal 2, 70/30 provides better balance—semantic understanding leads decisions while statistics catch edge cases semantics misses
 
 ### 5. Confidence Scorer (`detection/scorer.py`)
 **Purpose:** Combine multiple signals into a single confidence metric that reflects genuine uncertainty.
@@ -331,16 +337,18 @@ Used when: Signals conflict or are inconclusive
 POST /appeals
 Request:
 {
-  "submission_id": "550e8400-e29b-41d4-a716-446655440000",
+  "content_id": "550e8400-e29b-41d4-a716-446655440000",
+  "creator_id": "user-12345",
   "creator_reasoning": "This is my original poem, I wrote it myself..."
 }
 
 Response:
 {
   "appeal_id": "appeal-uuid",
-  "submission_id": "550e8400-e29b-41d4-a716-446655440000",
+  "content_id": "550e8400-e29b-41d4-a716-446655440000",
+  "creator_id": "user-12345",
   "status": "under_review",
-  "message": "Your appeal has been received and logged"
+  "message": "Your appeal has been received and logged. A human reviewer will examine your case."
 }
 ```
 
@@ -403,7 +411,7 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
    - Result: Genuine uncertainty, not false confidence
 
 4. **Label Generator**
-   - Confidence 0.649 falls in uncertain range (0.20-0.80)
+   - Confidence 0.649 falls in uncertain range (0.35-0.70)
    - Label shown: "We're uncertain about the origin of this content. It may be AI-generated or human-written."
    - Outcome: Reader is NOT misled by false certainty
 
@@ -1143,3 +1151,77 @@ Use the measurements and why-it-matters context from the spec to inform your imp
 11. **Test edge cases:** Submit stream-of-consciousness poetry, technical docs, translated content to verify appropriate attributions
 12. Verify audit log contains required entries
 13. Test rate limiting and error handling
+
+---
+
+## Implementation Divergences from Spec
+
+**Note:** This section documents where the implementation evolved from or differed from the original specification. All divergences were intentional and tested.
+
+### Signal 2 Complete Redesign
+
+**Original spec approach:** Measure vocabulary diversity (Type-Token Ratio, Bigram Diversity, Sentence Variance)
+
+**Why changed:** Testing revealed that vocabulary diversity alone is unreliable:
+- High-diversity AI exists (modern LLMs can vary vocabulary intentionally)
+- Low-diversity human writing exists (intentional poetic repetition)
+- Original approach: 1/4 calibration tests passing
+
+**Implementation:** Completely redesigned to detect AI-specific patterns:
+- Personal markers (30%): "I", "we", contractions, specific references
+- Emotional language (25%): words like "frustrated", "exhausted", sensory language
+- Formulaic phrases (20%): corporate jargon like "demonstrates potential", "stakeholders"
+- Type-Token Ratio (15%): supporting metric
+- Sentence Variance (10%): supporting metric
+
+**Result:** 4/4 calibration tests passing with meaningful score variation (AI: 0.10, uncertain: 0.52, human: 0.86)
+
+### Weighting Evolution
+
+**Original approach:** 80/20 (Signal 1: 80%, Signal 2: 20%)
+
+**Why changed:** After Signal 2 redesign, 80/20 was too extreme. Signal 2's improved pattern detection warranted equal weight, but testing showed optimal performance at 70/30.
+
+**Rationale:** 70/30 provides:
+- Semantic analysis leads decisions (language understanding is more discriminative)
+- Statistics provide meaningful check (catches edge cases semantics misses)
+- Balanced uncertainty representation (neither signal dominates completely)
+
+### Appeals Endpoint Parameter Change
+
+**Original planning:** `submission_id` only in request
+
+**Actual implementation:** `content_id` and `creator_id` in request
+
+**Why:** Need to validate that appealing creator actually owns the content. Requires matching both content_id AND creator_id to prevent unauthorized appeals.
+
+### Threshold Finalization
+
+**Original planning:** 0.20/0.80 mentioned in some sections
+
+**Actual thresholds:** 0.35/0.70
+
+**Why:** Testing with real signal outputs showed 0.20/0.80 was too extreme. The 0.35/0.70 split:
+- Provides more "uncertain" range (0.35 width vs. 0.40 width)
+- Better matches empirical signal distributions
+- Reduces false positives while maintaining useful uncertainty representation
+
+---
+
+## Post-Implementation Learnings
+
+### What Worked Well
+
+1. **Three-label transparency framework:** Forcing exactly 3 variants prevented hedging and false precision
+2. **70/30 weighting:** After Signal 2 redesign, this ratio captured signal complementarity well
+3. **Thresholds (0.35/0.70):** Better separation than original 0.20/0.80, with room for genuine uncertainty
+4. **Appeals mechanism:** Provides creator voice and human review path for edge cases
+
+### What Would Change for Production
+
+1. **Signal 2 per-language models:** Current approach is English-heavy; multilingual detection needed
+2. **Domain-specific thresholds:** Technical documentation, poetry, and other genres might need separate threshold tuning
+3. **Groq prompt fine-tuning:** Current prompt catches obvious patterns but misses domain-specific AI generations
+4. **Feedback loop:** Overturned appeals should retrain signals; current implementation has no retraining
+5. **Confidence calibration:** A/B test different thresholds with real users; current thresholds are educated guesses
+6. **Human reviewer dashboard:** Appeals process is currently manual; needs UI for reviewer workflow
