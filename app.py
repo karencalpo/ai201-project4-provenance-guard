@@ -51,7 +51,8 @@ app = Flask(__name__)
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["10 per minute"]
+    default_limits=["10 per minute"],
+    storage_uri="memory://"
 )
 
 # SQLite audit log database
