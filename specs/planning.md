@@ -100,38 +100,13 @@ Response:
 
 ### 4. Multi-Signal Detection Pipeline
 
-#### Signal 1: Text Statistics Analyzer (`detection/text_stats.py`)
-**Purpose:** Capture stylistic patterns that distinguish human from AI writing.
-
-**Weight:** 30% of final confidence score
-
-**Measurements:**
-- **Entropy:** How unpredictable and varied the text is (humans vary more, AI is sometimes repetitive)
-- **Perplexity:** How "surprising" each token is given context (humans have natural surprises, AI follows patterns)
-- **Token distribution:** Vocabulary richness and n-gram patterns
-- **Punctuation patterns:** Frequency and variety of punctuation usage
-- **Sentence length variance:** Humans naturally vary sentence length more
-
-**Why This Signal:**
-- Captures genuine stylistic patterns humans use naturally
-- Fast to compute (no external API calls)
-- Deterministic and reproducible
-- Detects some AI-generated patterns (e.g., unnatural repetition, overly uniform sentence structure)
-
-**Limitations:**
-- Can be defeated by AI models specifically trained to mimic human style
-- Doesn't understand semantic content
-- May bias against certain human writing styles (poetry, technical writing)
-
-**Output:** Probability score 0.0-1.0 (higher = more likely human-written)
-
-#### Signal 2: Semantic Analyzer (`detection/groq_analyzer.py`)
+#### Signal 1: Semantic Analyzer (`detection/groq_analyzer.py`)
 **Purpose:** Leverage deep language understanding to detect AI-generation patterns at the semantic level.
 
 **Weight:** 70% of final confidence score
 
 **Process:**
-1. Send text to Groq API with structured analysis prompt
+1. Send text to Groq API (llama-3.3-70b-versatile) with structured analysis prompt
 2. LLM analyzes: thought progression, logical coherence, knowledge integration, reasoning depth
 3. Returns probability estimate with reasoning
 
@@ -149,23 +124,45 @@ Response:
 
 **Limitations:**
 - Slower (requires API call to Groq)
-- More expensive (API costs)
 - May be confused by unusual human styles (stream-of-consciousness, highly technical, translated content)
 
 **Output:** Probability score 0.0-1.0 (higher = more likely human-written)
 
+#### Signal 2: Stylometric Analyzer (`detection/text_stats.py`)
+**Purpose:** Capture stylistic patterns that distinguish human from AI writing using pure Python heuristics.
+
+**Weight:** 30% of final confidence score
+
+**Measurements:**
+- Type-Token Ratio: Vocabulary diversity (unique words / total words)
+- Bigram Diversity: Phrase variation (unique bigrams / total bigrams)
+- Sentence Length Variance: Structural variety (coefficient of variation in sentence lengths)
+
+**Why This Signal:**
+- Captures genuine stylistic patterns humans use naturally
+- Fast to compute (no external API calls, pure Python)
+- Deterministic and reproducible
+- Detects some AI-generated patterns (e.g., unnatural repetition, overly uniform sentence structure)
+
+**Limitations:**
+- Can be defeated by AI models specifically trained to mimic human style
+- Doesn't understand semantic content
+- May bias against certain human writing styles (poetry, technical writing)
+
+**Output:** Probability score 0.0-1.0 (higher = more likely human-written)
+
 #### Why Ensemble with These Two Signals?
-- **Complementary:** Statistics catch stylistic patterns; semantics catch logical patterns
-- **Balanced:** Fast + cheap signal with slow + expensive signal
+- **Complementary:** Signal 1 (Groq) catches logical/semantic patterns; Signal 2 (Stylometric) catches stylistic patterns
+- **Balanced:** Signal 1 is deep but slower (Groq API); Signal 2 is fast but shallow (pure Python)
 - **Robust:** Neither signal alone is perfect; combination reduces both false positives and false negatives
-- **Interpretable:** Each signal has clear meaning; weighting reflects empirical reliability
+- **Interpretable:** Each signal has clear meaning; 70%/30% weighting reflects empirical reliability (Signal 1 more trustworthy)
 
 ### 5. Confidence Scorer (`detection/scorer.py`)
 **Purpose:** Combine multiple signals into a single confidence metric that reflects genuine uncertainty.
 
 **Algorithm:**
 ```
-final_confidence = (0.70 × semantic_score) + (0.30 × statistics_score)
+final_confidence = (0.70 × signal_1_groq_score) + (0.30 × signal_2_stylometric_score)
 ```
 
 **Output Range:** 0.0 to 1.0
@@ -184,12 +181,12 @@ final_confidence = (0.70 × semantic_score) + (0.30 × statistics_score)
 **Mapping Raw Signals to Calibrated Confidence:**
 
 Example with confidence score of 0.6:
-- Semantic analyzer (Groq): scores 0.65 (sees mostly human reasoning but some oddities)
-- Text statistics: scores 0.50 (mixed patterns—some natural variation, some unusual)
+- Signal 1 (Groq semantic): scores 0.65 (sees mostly human reasoning but some oddities)
+- Signal 2 (Stylometric): scores 0.50 (mixed patterns—some natural variation, some unusual)
 - Calculation: `(0.70 × 0.65) + (0.30 × 0.50) = 0.455 + 0.15 = 0.605`
 - Result: **0.6 means the system is conflicted**
-  - Semantic signal sees genuine reasoning (pulling toward human)
-  - Statistics signal sees unusual patterns (pulling toward AI)
+  - Signal 1 sees genuine reasoning (pulling toward human)
+  - Signal 2 sees unusual patterns (pulling toward AI)
   - Neither signal dominates; uncertainty is genuine
   - Label shown: "We're uncertain about the origin of this content..."
 
