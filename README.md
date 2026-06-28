@@ -12,6 +12,7 @@ An API service that attributes text content as AI-generated or human-written, pr
 7. [Usage & Testing](#usage--testing)
 8. [Limitations & Edge Cases](#limitations--edge-cases)
 9. [Deployment Considerations](#deployment-considerations)
+10. [Demo Video](https://www.loom.com/share/c43ccf5c987047d0b3b313532e4b9ef0)
 
 ---
 
