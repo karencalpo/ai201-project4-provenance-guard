@@ -58,7 +58,7 @@ limiter = Limiter(
 DB_PATH = "audit_log.db"
 
 def init_db():
-    """Initialize SQLite database with audit_log table."""
+    """Initialize SQLite database with audit_log and appeals tables."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
@@ -72,6 +72,16 @@ def init_db():
             final_confidence REAL NOT NULL,
             classification TEXT NOT NULL,
             label TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+    ''')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS appeals (
+            id TEXT PRIMARY KEY,
+            content_id TEXT NOT NULL,
+            creator_id TEXT NOT NULL,
+            creator_reasoning TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
             status TEXT NOT NULL
         )
     ''')
@@ -283,6 +293,117 @@ def log():
 
         entries = get_log(limit=limit)
         return jsonify({"entries": entries}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/appeals', methods=['POST'])
+@limiter.limit("10 per minute")
+def appeal():
+    """
+    POST /appeals: Submit an appeal for a classification decision.
+
+    Request:
+        POST /appeals
+        {
+            "content_id": "uuid",
+            "creator_id": "user-123",
+            "creator_reasoning": "This is my original work..."
+        }
+
+    Response (200 OK):
+        {
+            "appeal_id": "uuid",
+            "content_id": "uuid",
+            "creator_id": "user-123",
+            "status": "under_review",
+            "message": "Your appeal has been received and logged..."
+        }
+
+    Errors:
+        400: Invalid input (missing fields, reasoning too short/long, creator_id mismatch)
+        404: content_id doesn't exist in database
+        429: Rate limit exceeded
+        500: Server error
+    """
+    try:
+        data = request.get_json()
+
+        # Validate required fields
+        if not data:
+            return jsonify({"error": "Request body must be JSON"}), 400
+
+        content_id = data.get('content_id')
+        creator_id = data.get('creator_id')
+        creator_reasoning = data.get('creator_reasoning')
+
+        # Validate content_id
+        if not content_id or not isinstance(content_id, str):
+            return jsonify({"error": "Missing or invalid 'content_id' field"}), 400
+
+        # Validate creator_id
+        if not creator_id or not isinstance(creator_id, str):
+            return jsonify({"error": "Missing or invalid 'creator_id' field"}), 400
+
+        # Validate creator_reasoning
+        if not creator_reasoning or not isinstance(creator_reasoning, str):
+            return jsonify({"error": "Missing 'creator_reasoning' field"}), 400
+
+        creator_reasoning = creator_reasoning.strip()
+        if len(creator_reasoning) < 20:
+            return jsonify({"error": "creator_reasoning must be at least 20 characters"}), 400
+        if len(creator_reasoning) > 2000:
+            return jsonify({"error": "creator_reasoning must not exceed 2,000 characters"}), 400
+
+        # Query database to verify content_id exists and creator_id matches
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            SELECT creator_id, status FROM audit_log WHERE content_id = ?
+        ''', (content_id,))
+
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"error": "content_id not found in database"}), 404
+
+        # Verify creator_id matches
+        original_creator_id = row['creator_id']
+        if original_creator_id != creator_id:
+            conn.close()
+            return jsonify({"error": "creator_id does not match original submission"}), 400
+
+        # Update the status of the original audit_log entry to "under_review"
+        cursor.execute('''
+            UPDATE audit_log SET status = ? WHERE content_id = ?
+        ''', ("under_review", content_id))
+
+        # Create appeal record
+        appeal_id = str(uuid.uuid4())
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        cursor.execute('''
+            INSERT INTO appeals
+            (id, content_id, creator_id, creator_reasoning, timestamp, status)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (appeal_id, content_id, creator_id, creator_reasoning, timestamp, "under_review"))
+
+        conn.commit()
+        conn.close()
+
+        # Return success response
+        response = {
+            "appeal_id": appeal_id,
+            "content_id": content_id,
+            "creator_id": creator_id,
+            "status": "under_review",
+            "message": "Your appeal has been received and logged. A human reviewer will examine your case."
+        }
+
+        return jsonify(response), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500

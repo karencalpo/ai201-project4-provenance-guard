@@ -6,14 +6,22 @@ Provenance Guard is an API service that classifies text content as AI-generated 
 
 ## Current Implementation Status
 
-**Milestone 3 (In Progress):**
+**Module 4 (Complete):**
 - ✅ Flask API with POST /submit endpoint
-- ✅ Input validation (text length, creator_id required)
-- ✅ Signal 1 (Text Statistics) wired and returning attribution score
-- ✅ content_id generation and tracking
-- ⏳ Audit log setup (next step)
-- ✅ Rate limiting (implemented)
-- ✅ Error handling (implemented)
+- ✅ Input validation (text length 10-10,000 chars, creator_id required)
+- ✅ Signal 1 (Groq Semantic Analysis) - detects corporate jargon, false balance, vague phrases
+- ✅ Signal 2 (Text Statistics) - detects personal markers, emotional language, formulaic phrases
+- ✅ Confidence Scorer - weighted ensemble (70% Signal 1 + 30% Signal 2)
+- ✅ Label Generator - three transparency variants based on thresholds
+- ✅ Audit logging - captures both signal scores + combined confidence
+- ✅ Database schema - SQLite with signal_1_score, signal_2_score, final_confidence, classification, label
+- ✅ Rate limiting (10 req/min per IP)
+- ✅ Error handling (400, 413, 429, 500)
+
+**Module 5 (In Progress):**
+- ⏳ POST /appeals endpoint
+- ⏳ Appeals workflow with database updates
+- ⏳ Human reviewer interface
 
 ## The Journey: Text Submission to User Label
 
@@ -637,18 +645,28 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 - `text`: Required, string, 10-10,000 characters, UTF-8 encoding required, non-whitespace only
 - `creator_id`: Required, string, non-empty (identifier of the content creator)
 
-**Success Response (200 OK) - Milestone 3:**
+**Success Response (200 OK) - Module 4:**
 ```json
 {
   "content_id": "550e8400-e29b-41d4-a716-446655440000",
   "creator_id": "user-12345",
-  "attribution": 0.92,
-  "confidence": 0.5,
-  "label": "uncertain"
+  "classification": "human",
+  "confidence": 0.86,
+  "label": "This appears to be written by a human",
+  "signals": {
+    "signal_1": 0.90,
+    "signal_2": 0.78
+  }
 }
 ```
 
-**Note:** In Milestone 3, `attribution` is the Signal 1 (Text Statistics) score. `confidence` and `label` are placeholders. In Milestone 4, these will be replaced with actual ensemble scoring from both signals.
+**Response Explanation:**
+- `content_id`: Unique tracking ID (UUID)
+- `creator_id`: Original creator ID from request
+- `classification`: "ai" (confidence < 0.35), "uncertain" (0.35-0.70), or "human" (> 0.70)
+- `confidence`: Rounded to 2 decimals: (0.70 × signal_1) + (0.30 × signal_2)
+- `label`: Transparency text shown to user (one of three variants)
+- `signals`: Individual scores from both analyzers
 
 **Error Responses:**
 - `400 Bad Request`: Invalid input (too short, non-UTF8, empty, etc.)
@@ -672,8 +690,8 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 ```
 
 **Constraints:**
-- `content_id`: Required, must exist in database
-- `creator_id`: Required, must match the creator_id of the original submission
+- `content_id`: Required, must exist in database (from prior POST /submit call as the response content_id)
+- `creator_id`: Required, must match the creator_id from the original submission
 - `creator_reasoning`: Required, string, 20-2,000 characters
 
 **Success Response (200 OK):**
@@ -687,8 +705,17 @@ Every reviewer action is logged with timestamp and reviewer ID for accountabilit
 }
 ```
 
+**Behavior:**
+1. Validates content_id exists in database
+2. Validates creator_id matches original submission's creator_id
+3. Validates creator_reasoning is 20-2,000 characters
+4. Creates appeal record in `appeals` table with status "under_review"
+5. Updates original submission's `appeal_status` from "none" to "under_review"
+6. Logs to audit_log
+7. Returns appeal_id and confirmation message
+
 **Error Responses:**
-- `400 Bad Request`: Invalid content_id, creator_id mismatch, or reasoning too short/long
+- `400 Bad Request`: Invalid content_id format, creator_id mismatch, reasoning too short/long, or missing fields
 - `404 Not Found`: content_id doesn't exist in database
 - `429 Too Many Requests`: Rate limit exceeded (10 requests per minute per IP)
 - `500 Internal Server Error`: Database error
