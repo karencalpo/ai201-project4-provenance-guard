@@ -101,53 +101,70 @@ Response:
 ### 4. Multi-Signal Detection Pipeline
 
 #### Signal 1: Semantic Analyzer (`detection/groq_analyzer.py`)
-**Purpose:** Leverage deep language understanding to detect AI-generation patterns at the semantic level.
+**Purpose:** Detect AI-generation patterns by identifying corporate/academic jargon, lack of authentic details, and formulaic reasoning.
 
 **Weight:** 70% of final confidence score
 
 **Process:**
 1. Send text to Groq API (llama-3.3-70b-versatile) with structured analysis prompt
-2. LLM analyzes: thought progression, logical coherence, knowledge integration, reasoning depth
-3. Returns probability estimate with reasoning
+2. LLM analyzes for: corporate jargon, abstract noun chains, presence of specific anecdotes, authentic voice, genuine reasoning
+3. Returns probability score 0.0-1.0
 
 **Measurements:**
-- Logical consistency: Does the argument flow naturally or show signs of pattern-matching?
-- Concept integration: Are ideas combined in novel ways (human) or formulaic ways (AI)?
-- Knowledge application: Does the writer demonstrate understanding or retrieve facts?
-- Linguistic naturalness: Are there subtle semantic awkwardnesses that suggest generation?
+- Corporate/academic jargon: Detects vague phrases like "demonstrates potential", "enhances efficiency", "systematic optimization"
+- Abstract noun chains: Flags "systems", "methodologies", "frameworks" appearing without concrete examples
+- Specific details & anecdotes: Scores higher when text includes personal examples, concrete anecdotes, genuine perspective
+- Authentic voice: Detects informal language, conversational tone, human quirks vs. "perfect" grammar
+- Genuine reasoning: Looks for unexpected connections and novel insights rather than formulaic reasoning chains
 
 **Why This Signal:**
-- Captures semantic patterns that statistical analysis misses
-- Leverages state-of-the-art language model understanding
-- Can detect sophisticated AI writing that passes simple statistical tests
-- Provides reasoning context for classifications
+- Catches AI patterns that pure statistics miss (specific linguistic tells of corporate AI output)
+- Leverages language model's understanding of authenticity vs. formulaic writing
+- Fast enough for real-time classification (single API call)
 
-**Limitations:**
-- Slower (requires API call to Groq)
-- May be confused by unusual human styles (stream-of-consciousness, highly technical, translated content)
+**Blind Spots (What It Can't Capture):**
+1. **AI trained to mimic authenticity** — If AI is fine-tuned to include anecdotes and conversational tone, Signal 1 won't detect it
+2. **Humans writing formally without corporate jargon** — A formal letter or academic paper without jargon/anecdotes may score as AI
+3. **Expert technical writing** — Domain experts naturally use "systems", "methodologies", abstract nouns; may be misclassified as AI
+4. **Casual writing without anecdotes** — Someone sharing a simple thought without examples might score low (AI-like) despite being human
+5. **Non-English or translated content** — Groq's training is English-heavy; translations may appear unnatural without being AI
+6. **Very specific domains** — AI trained on specialized corpora (medical, legal) may have authentic-sounding domain language
 
 **Output:** Probability score 0.0-1.0 (higher = more likely human-written)
 
 #### Signal 2: Stylometric Analyzer (`detection/text_stats.py`)
-**Purpose:** Capture stylistic patterns that distinguish human from AI writing using pure Python heuristics.
+**Purpose:** Measure vocabulary and structural diversity to catch repetitive patterns often found in AI writing.
 
 **Weight:** 30% of final confidence score
 
 **Measurements:**
-- Type-Token Ratio: Vocabulary diversity (unique words / total words)
-- Bigram Diversity: Phrase variation (unique bigrams / total bigrams)
-- Sentence Length Variance: Structural variety (coefficient of variation in sentence lengths)
+- Type-Token Ratio (TTR): Vocabulary diversity = unique words / total words (normalized to 0-1)
+  - High TTR (>0.6) = diverse vocabulary = human-like
+  - Low TTR (<0.4) = repetitive vocabulary = AI-like
+- Bigram Diversity: Phrase variation = unique bigrams / total bigrams
+  - High diversity = varied phrases (human-like)
+  - Low diversity = repeated word pairs (AI-like)
+- Sentence Length Variance: Structural variety = coefficient of variation in sentence lengths (normalized to 0-1)
+  - High variance = varied sentence structure (human-like)
+  - Low variance = uniform sentence lengths (AI-like)
+
+**Combined Formula:** 45% TTR + 45% Bigram Diversity + 10% Sentence Variance
 
 **Why This Signal:**
-- Captures genuine stylistic patterns humans use naturally
 - Fast to compute (no external API calls, pure Python)
-- Deterministic and reproducible
-- Detects some AI-generated patterns (e.g., unnatural repetition, overly uniform sentence structure)
+- Deterministic and reproducible across runs
+- Catches obvious repetition patterns ("the cat... the cat... the cat...")
+- Complements semantic analysis (catches what Groq might miss)
 
-**Limitations:**
-- Can be defeated by AI models specifically trained to mimic human style
-- Doesn't understand semantic content
-- May bias against certain human writing styles (poetry, technical writing)
+**Blind Spots (What It Can't Capture):**
+1. **Semantic meaning** — Can't tell if arguments are logical or circular; only measures word choice diversity
+2. **Originality vs. plagiarism** — Plagiarized human text has high diversity but zero originality
+3. **Intentional stylization** — Poetry, children's books, song lyrics intentionally use repetition but are human-written
+4. **Domain-specific writing** — Technical/legal/medical documents naturally repeat specialized terms; high TTR ≠ authentic
+5. **AI trained to vary vocabulary** — Modern AI can produce high TTR and diverse bigrams while remaining obviously formulaic semantically
+6. **Short texts** — Insufficient tokens for reliable statistics; random variation can skew scores
+7. **Non-English text** — TTR/bigram patterns differ across languages; metrics don't transfer
+8. **Human stylistic choices** — Someone writing simply by choice (children, ESL speakers) may score low despite being human
 
 **Output:** Probability score 0.0-1.0 (higher = more likely human-written)
 

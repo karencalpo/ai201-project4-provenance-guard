@@ -1,18 +1,46 @@
 """
-Signal 1: Text Statistics Analyzer
+Signal 2: Stylometric Analyzer (Text Statistics)
 
-Captures stylistic patterns that distinguish human from AI writing.
+Measures vocabulary and structural diversity to catch repetitive patterns often found in AI writing.
+
+Weight: 30% of final confidence score
 
 Measurements:
-  - Type-Token Ratio (TTR): Vocabulary diversity
-  - Bigram Diversity: Phrase variation
-  - Sentence Length Variance: Structural variety
+  - Type-Token Ratio (TTR): Unique words / total words (normalized 0-1)
+    * High TTR (>0.6) = diverse vocabulary = human-like
+    * Low TTR (<0.4) = repetitive vocabulary = AI-like
 
-Output: Single score 0.0-1.0 (higher = more human-written)
+  - Bigram Diversity: Unique bigrams / total bigrams
+    * High diversity = varied phrases = human-like
+    * Low diversity = repeated word pairs = AI-like
+
+  - Sentence Length Variance: Coefficient of variation in sentence lengths (normalized 0-1)
+    * High variance = varied structure = human-like
+    * Low variance = uniform sentences = AI-like
+
+Combined Formula: 45% TTR + 45% Bigram Diversity + 10% Sentence Variance
+
+Output: Single score 0.0-1.0 (higher = more likely human-written)
+
+Why This Signal:
+  - Fast to compute (no external API, pure Python)
+  - Deterministic and reproducible
+  - Catches obvious repetition patterns
+  - Complements semantic analysis with stylistic insights
+
+Blind Spots:
+  - Can't judge semantic meaning (only word choice diversity)
+  - Can't detect plagiarism (plagiarized human text has high diversity)
+  - Struggles with intentional stylization (poetry, children's books)
+  - Domain-specific writing naturally repeats specialized terms
+  - Modern AI can produce high TTR/diversity while remaining formulaic
+  - Insufficient data for very short texts (<50 words)
+  - TTR/bigram patterns don't transfer across languages
+  - Humans writing simply by choice may score low despite authenticity
 
 Test Cases:
-  - Highly repetitive: "Tired tired tired..." → ~0.22
-  - Varied human: "The feline was exhausted..." → ~0.92
+  - Highly repetitive: "The cat was tired. The cat slept. The cat rested." → ~0.22
+  - Varied human: "The feline was exhausted, so it napped. Actually, it zonked out." → ~0.92
   - Mixed/uncertain: → ~0.50-0.65
 """
 
